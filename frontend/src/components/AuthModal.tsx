@@ -34,15 +34,17 @@ export const AuthModal = ({ isOpen, onClose, defaultMode = 'login' }: any) => {
     setBusy(true);
     try {
       if (mode === 'login') {
-        // Try admin login first — if it succeeds, store token and reload into admin panel
-        try {
-          const res = await api.adminLogin(email, password);
-          localStorage.setItem('learnlens_admin_token', res.access_token);
-          localStorage.setItem('learnlens_token', res.access_token);
-          window.location.reload();
-          return;
-        } catch {
-          // Not an admin — fall through to regular user login
+        // Only attempt admin login if the email matches the admin email
+        if (email.trim().toLowerCase() === 'admin@learnlens.ai') {
+          try {
+            const res = await api.adminLogin(email, password);
+            localStorage.setItem('learnlens_admin_token', res.access_token);
+            localStorage.setItem('learnlens_token', res.access_token);
+            window.location.reload();
+            return;
+          } catch {
+            // Not an admin — fall through to regular user login
+          }
         }
         await login(email, password);
       } else {

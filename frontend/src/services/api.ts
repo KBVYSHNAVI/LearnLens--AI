@@ -15,7 +15,35 @@ import { mockPaths, mockTopicDetail, mockQuestions, mockDashboard, mockBadges } 
 function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any {
   console.info(`[LearnLens Demo Mode] Falling back to offline data for: ${endpoint}`);
 
-  if (endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/register') || endpoint.startsWith('/admin/login')) {
+  if (endpoint.startsWith('/admin/login')) {
+    let body: any = {};
+    try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+    if ((body.email || '').trim().toLowerCase() !== 'admin@learnlens.ai') {
+      throw new Error('Invalid admin credentials');
+    }
+    const adminUser: User = {
+      id: 999,
+      email: 'admin@learnlens.ai',
+      name: 'Admin',
+      degree: 'N/A',
+      branch: 'Administration',
+      graduation_year: 2026,
+      target_companies: 'LearnLens Admin',
+      preferred_language: 'python',
+      learning_goals: 'Administer LearnLens platform',
+      streak_count: 0,
+      readiness_score: 100,
+      points: 9999,
+      created_at: new Date().toISOString()
+    };
+    return {
+      access_token: 'demo-admin-token',
+      token_type: 'bearer',
+      user: adminUser
+    };
+  }
+
+  if (endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/register')) {
     let body: any = {};
     try { body = JSON.parse((options.body as string) || '{}'); } catch {}
     const email = body.email || 'learner@learnlens.ai';
@@ -184,6 +212,51 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
       coding_available: 1,
       previous_submission: null
     };
+  }
+
+  if (endpoint.startsWith('/admin/analytics')) {
+    return {
+      totals: { users: 24, questions: 18, submissions: 85, quizzes: 32, pass_rate: 88.5, learning_paths: 2, topics: 4 },
+      top_users: [
+        { name: 'Aditya Rao', email: 'aditya@example.com', points: 340, streak: 12 },
+        { name: 'Priya Sharma', email: 'priya@example.com', points: 290, streak: 9 },
+        { name: 'Rahul Varma', email: 'rahul@example.com', points: 210, streak: 6 }
+      ],
+      hot_questions: [
+        { title: 'Find Maximum Element', attempts: 45 },
+        { title: 'Array Index Access Time Complexity', attempts: 38 }
+      ],
+      topic_stats: [
+        { topic: 'Arrays & Two Pointers', completed: 15, questions: 2 },
+        { topic: 'Linked Lists', completed: 8, questions: 0 },
+        { topic: 'Trees & Traversals', completed: 4, questions: 0 }
+      ]
+    };
+  }
+
+  if (endpoint.startsWith('/admin/topics')) {
+    return mockPaths.flatMap(p => p.topics);
+  }
+
+  if (endpoint.startsWith('/admin/questions')) {
+    return mockQuestions;
+  }
+
+  if (endpoint.startsWith('/admin/paths')) {
+    return mockPaths;
+  }
+
+  if (endpoint.startsWith('/admin/users')) {
+    return [
+      { id: 1, name: 'Placement Aspirant', email: 'demo@learnlens.ai', points: 180, streak: 5, created_at: new Date().toISOString() },
+      { id: 2, name: 'Jyoshna', email: 'jyo@gmail.com', points: 90, streak: 3, created_at: new Date().toISOString() }
+    ];
+  }
+
+  if (endpoint.startsWith('/admin/assignments')) {
+    return [
+      { topic_id: 1, topic: 'Arrays & Two Pointers', mcq: 1, coding: 1, complete: false, submissions: 1 }
+    ];
   }
 
   return {};

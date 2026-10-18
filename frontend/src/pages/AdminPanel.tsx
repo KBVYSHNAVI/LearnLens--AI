@@ -223,7 +223,10 @@ function OverviewTab() {
   if (loading) return <div className="p-8 text-center text-slate-400">Loading analytics...</div>;
   if (!data) return <div className="p-8 text-center text-slate-400">Failed to load analytics.</div>;
 
-  const { totals, top_users, hot_questions, topic_stats } = data;
+  const totals = data?.totals || { users: 0, questions: 0, submissions: 0, quizzes: 0, pass_rate: 0, learning_paths: 0, topics: 0 };
+  const top_users = data?.top_users || [];
+  const hot_questions = data?.hot_questions || [];
+  const topic_stats = data?.topic_stats || [];
 
   return (
     <div className="space-y-6">
