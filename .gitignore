@@ -1,0 +1,4 @@
+
+frontend/dist/
+frontend/tsc_errors.txt
+frontend/tsconfig.tsbuildinfo
