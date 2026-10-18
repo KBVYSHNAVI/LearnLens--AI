@@ -390,16 +390,15 @@ function AssignmentSection({ topicId, topicTitle }: { topicId: number; topicTitl
             onRun={async () => {
               setRunning(String(q.id));
               try {
-                // Use a temp coding question ID via the regular run endpoint
-                // Since assignment questions are separate, we run code directly
-                const r = await api.runCode(0, lang, currentCode, '') as any;
-                const passed = r.status === 'Passed' || (r.passed_count && r.passed_count === r.total_count);
+                const r = await api.runAssignmentCode(q.id, lang, currentCode) as any;
+                const passed = r.status === 'Passed' || (r.passed_count > 0 && r.passed_count === r.total_count) || (r.success === true && !r.status);
+                const output = r.feedback || (r.stdout ? r.stdout.trim() : '') || (r.stderr ? r.stderr.trim() : '') || (r.error_type ? `${r.error_type}: ${r.stderr || 'Execution failed'}` : (passed ? 'Code executed successfully.' : 'Execution failed.'));
                 setRunResults(prev => ({
                   ...prev,
-                  [q.id]: { status: passed ? 'passed' : 'failed', output: r.output || r.feedback || '' }
+                  [q.id]: { status: passed ? 'passed' : 'failed', output }
                 }));
               } catch (e: any) {
-                setRunResults(prev => ({ ...prev, [q.id]: { status: 'failed', output: e.message || 'Error' } }));
+                setRunResults(prev => ({ ...prev, [q.id]: { status: 'failed', output: e.message || 'Error executing code' } }));
               }
               setRunning(null);
             }}
@@ -485,7 +484,7 @@ function AssignmentSection({ topicId, topicTitle }: { topicId: number; topicTitl
 }
 
 // ── TopicView main ─────────────────────────────────────────────────────────
-export const TopicView = ({ topicKey, onBack, onOpenAITutor }: any) => {
+export const TopicView = ({ topicKey, onBack, onOpenAITutor, onSolveQuestion }: any) => {
   const [topic, setTopic] = useState<Topic | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [activeSection, setActiveSection] = useState<'content' | 'practice' | 'assignment'>('content');
@@ -583,7 +582,9 @@ export const TopicView = ({ topicKey, onBack, onOpenAITutor }: any) => {
                   <div className="font-medium text-sm">{q.title}</div>
                   <div className="text-xs text-slate-400 mt-0.5">{q.type} · {q.difficulty}</div>
                 </div>
-                <button className="px-3 py-1.5 text-xs bg-brand-600 hover:bg-brand-500 rounded-lg font-semibold transition">
+                <button
+                  onClick={() => onSolveQuestion?.(q.id)}
+                  className="px-3 py-1.5 text-xs bg-brand-600 hover:bg-brand-500 rounded-lg font-semibold transition">
                   Solve
                 </button>
               </div>

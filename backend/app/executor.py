@@ -96,7 +96,8 @@ def evaluate_test_cases(language: str, code: str, test_cases: List[Dict[str, Any
     results, passed, total_t, status = [], 0, 0.0, "Passed"
     for i, tc in enumerate(test_cases, 1):
         inp = str(tc.get("input", ""))
-        exp = str(tc.get("expected", "")).strip()
+        raw_exp = tc.get("expected") if tc.get("expected") is not None else tc.get("expected_output", "")
+        exp = str(raw_exp).strip()
         hidden = bool(tc.get("hidden", False))
         r = execute_code_single_run(language, code, stdin_input=inp)
         actual = r.get("stdout", "").strip()
@@ -119,7 +120,7 @@ def evaluate_test_cases(language: str, code: str, test_cases: List[Dict[str, Any
         results.append({
             "test_case_number": i, "passed": ok,
             "input": "[Hidden]" if hidden else inp,
-            "expected_output": "[Hidden]" if hidden else exp,
+            "expected_output": "[Hidden]" if hidden else (str(tc.get("expected_output")) if tc.get("expected_output") is not None else exp),
             "actual_output": "[Hidden]" if hidden and not ok else actual,
             "error": r.get("stderr", "") if not hidden else "",
             "execution_time_ms": r.get("execution_time_ms", 0.0),

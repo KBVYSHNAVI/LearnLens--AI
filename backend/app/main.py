@@ -616,11 +616,19 @@ def get_assignment(topic_id: int, db: Session = Depends(get_db),
         topic_id=topic_id, type="coding").order_by(models.AssignmentQuestion.order).limit(5).all()
 
     def fmt(q):
+        try:
+            opts = json.loads(q.options) if q.options else []
+        except Exception:
+            opts = []
+        try:
+            hnts = json.loads(q.hints) if q.hints else []
+        except Exception:
+            hnts = []
         return {
             "id": q.id, "type": q.type, "title": q.title,
             "description": q.description, "difficulty": q.difficulty,
-            "options": json.loads(q.options or "[]"),
-            "hints": json.loads(q.hints or "[]"),
+            "options": opts,
+            "hints": hnts,
             "starter_code_python": q.starter_code_python,
             "starter_code_java": q.starter_code_java,
             "starter_code_js": q.starter_code_js,
@@ -646,6 +654,22 @@ def get_assignment(topic_id: int, db: Session = Depends(get_db),
             "submitted_at": str(prev.submitted_at)
         } if prev else None
     }
+
+
+@app.post("/api/assignments/{qid}/run")
+def run_assignment_code(qid: int, data: schemas.CodeRunRequest, db: Session = Depends(get_db),
+                        current: models.User = Depends(get_current_user)):
+    """Run/evaluate an assignment coding question against its test cases."""
+    q = db.query(models.AssignmentQuestion).filter_by(id=qid).first()
+    if not q:
+        return execute_code_single_run(data.language, data.code, data.custom_input or "")
+    try:
+        tcs = json.loads(q.test_cases) if q.test_cases else []
+    except Exception:
+        tcs = []
+    if tcs:
+        return evaluate_test_cases(data.language, data.code, tcs)
+    return execute_code_single_run(data.language, data.code, data.custom_input or "")
 
 
 @app.post("/api/assignments/submit")

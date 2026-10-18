@@ -3,7 +3,7 @@ import {
   CodeSubmitResult, QuizResultOut, DashboardStats, BadgesResponse
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001/api';
 
 function getAuthHeader(): HeadersInit {
   const token = localStorage.getItem('learnlens_token');
@@ -111,6 +111,11 @@ export const api = {
 
   // ── Assignments (user) ───────────────────────────────────────────────────
   getAssignment: (topicId: number) => request<any>(`/assignments/${topicId}`),
+  runAssignmentCode: (qid: number, lang: string, code: string, inp?: string) =>
+    request<any>(`/assignments/${qid}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ language: lang, code, custom_input: inp || '' })
+    }),
   submitAssignment: (data: any) =>
     request<any>('/assignments/submit', { method: 'POST', body: JSON.stringify(data) }),
 

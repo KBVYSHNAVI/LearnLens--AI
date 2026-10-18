@@ -124,6 +124,13 @@ const MainApp: React.FC = () => {
   const [tutorContext, setTutorContext] = useState<any>({});
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [codingQuestionId, setCodingQuestionId] = useState<number | undefined>(undefined);
+
+  const handleSolveQuestion = (qid: number) => {
+    setCodingQuestionId(qid);
+    setSelectedTopicKey(null);
+    setCurrentTab('coding');
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -189,6 +196,7 @@ const MainApp: React.FC = () => {
               topicKey={selectedTopicKey}
               onBack={() => setSelectedTopicKey(null)}
               onOpenAITutor={openTutor}
+              onSolveQuestion={handleSolveQuestion}
             />
           ) : (
             <>
@@ -200,7 +208,13 @@ const MainApp: React.FC = () => {
                 />
               )}
               {currentTab === 'paths' && <LearningPaths onSelectTopic={setSelectedTopicKey} />}
-              {currentTab === 'coding' && <CodingArena onOpenAITutor={openTutor} />}
+              {currentTab === 'coding' && (
+                <CodingArena
+                  onOpenAITutor={openTutor}
+                  questionId={codingQuestionId}
+                  onSelectQuestion={setCodingQuestionId}
+                />
+              )}
               {currentTab === 'ai-coach' && <AICoach />}
               {currentTab === 'mock-interview' && <MockInterview />}
               {currentTab === 'company-tracks' && (
