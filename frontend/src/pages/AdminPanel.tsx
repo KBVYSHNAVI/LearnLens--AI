@@ -113,9 +113,59 @@ function QuestionForm({ topics, initial, onSave, onCancel }: {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setSaving(true);
+    const tid = Number(form.topic_id);
+    if (!tid || tid <= 0) {
+      setError('Please select a topic from the dropdown.');
+      setSaving(false);
+      return;
+    }
+    if (!form.title || !form.title.trim()) {
+      setError('Please enter a question title.');
+      setSaving(false);
+      return;
+    }
+
+    // Auto-generate question_uid if blank
+    let finalUid = (form.question_uid || '').trim();
+    if (!finalUid) {
+      const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20);
+      finalUid = `${slug || 'q'}_${Date.now()}`;
+    }
+
+    // Format options for MCQ
+    let finalOptions = form.options;
+    if (form.type === 'mcq') {
+      try {
+        const parsed = JSON.parse(finalOptions);
+        if (!Array.isArray(parsed)) finalOptions = JSON.stringify([finalOptions]);
+      } catch {
+        const items = (finalOptions || '').split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
+        finalOptions = JSON.stringify(items.length > 0 ? items : ['Option A', 'Option B', 'Option C', 'Option D']);
+      }
+    }
+
+    // Format test_cases for coding
+    let finalTestCases = form.test_cases;
+    if (form.type === 'coding') {
+      try {
+        const parsed = JSON.parse(finalTestCases);
+        if (!Array.isArray(parsed)) finalTestCases = JSON.stringify([parsed]);
+      } catch {
+        finalTestCases = JSON.stringify([{ input: '', expected_output: '' }]);
+      }
+    }
+
+    const payload = {
+      ...form,
+      topic_id: tid,
+      question_uid: finalUid,
+      options: finalOptions,
+      test_cases: finalTestCases
+    };
+
     try {
-      initial.id ? await api.adminUpdateQuestion(initial.id, form)
-                 : await api.adminCreateQuestion(form);
+      initial.id ? await api.adminUpdateQuestion(initial.id, payload)
+                 : await api.adminCreateQuestion(payload);
       setOk(true);
       setTimeout(() => { setOk(false); onSave(); }, 700);
     } catch (err: any) { setError(err.message || 'Save failed'); }
@@ -653,9 +703,50 @@ function AssignmentTab({ topics }: { topics: any[] }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setSaving(true);
+    if (!selectedTopic || selectedTopic === 0) {
+      setError('Please select a topic first.');
+      setSaving(false);
+      return;
+    }
+    if (!form.title || !form.title.trim()) {
+      setError('Please enter a question title.');
+      setSaving(false);
+      return;
+    }
+
+    let finalOptions = form.options;
+    if (form.type === 'mcq') {
+      try {
+        const parsed = JSON.parse(finalOptions);
+        if (!Array.isArray(parsed)) finalOptions = JSON.stringify([finalOptions]);
+      } catch {
+        const items = (finalOptions || '').split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
+        finalOptions = JSON.stringify(items.length > 0 ? items : ['Option A', 'Option B', 'Option C', 'Option D']);
+      }
+    }
+
+    let finalTestCases = form.test_cases;
+    if (form.type === 'coding') {
+      try {
+        const parsed = JSON.parse(finalTestCases);
+        if (!Array.isArray(parsed)) finalTestCases = JSON.stringify([parsed]);
+      } catch {
+        finalTestCases = JSON.stringify([{ input: '', expected_output: '' }]);
+      }
+    }
+
+    const payload = {
+      ...form,
+      topic_id: selectedTopic,
+      options: finalOptions,
+      test_cases: finalTestCases
+    };
+
     try {
-      await api.adminCreateAssignmentQ({ ...form, topic_id: selectedTopic });
-      setMsg('Question added!'); setShowForm(false); setForm({ ...EMPTY_AQ, topic_id: selectedTopic });
+      await api.adminCreateAssignmentQ(payload);
+      setMsg('Question added successfully!');
+      setShowForm(false);
+      setForm({ ...EMPTY_AQ, topic_id: selectedTopic });
       const updated = await api.adminGetAssignment(selectedTopic);
       setQuestions(updated);
       api.adminGetAssignmentStats().then(setStats).catch(() => {});
@@ -1252,7 +1343,7 @@ export const AdminPanel = () => {
             {showForm && (
               <div className="bg-navy-800 border border-navy-700 rounded-2xl p-6">
                 <h2 className="font-bold text-lg mb-4">{editQ ? 'Edit Question' : 'New Question'}</h2>
-                <QuestionForm topics={topics} initial={editQ ?? EMPTY_Q}
+                <QuestionForm topics={topics} initial={editQ ?? { ...EMPTY_Q, topic_id: filterTopic || (topics[0]?.id ?? 0) }}
                   onSave={() => { setShowForm(false); setEditQ(null); loadQuestions(); }}
                   onCancel={() => { setShowForm(false); setEditQ(null); }} />
               </div>

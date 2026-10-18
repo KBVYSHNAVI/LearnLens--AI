@@ -433,14 +433,27 @@ def admin_list_questions(topic_id: int = None, db: Session = Depends(get_db),
 @app.post("/api/admin/questions", response_model=schemas.QuestionOut)
 def admin_create_question(data: schemas.QuestionCreate, db: Session = Depends(get_db),
                            _: models.User = Depends(get_current_admin)):
-    if db.query(models.Question).filter_by(question_uid=data.question_uid).first():
-        raise HTTPException(400, f"question_uid '{data.question_uid}' already exists")
-    q = models.Question(**data.model_dump())
+    if not data.topic_id or data.topic_id <= 0:
+        raise HTTPException(400, "Please select a valid topic")
+    topic = db.query(models.Topic).filter_by(id=data.topic_id).first()
+    if not topic:
+        raise HTTPException(404, "Selected topic not found")
+
+    import time, re
+    q_uid = (data.question_uid or "").strip()
+    if not q_uid:
+        slug = re.sub(r'[^a-zA-Z0-9]+', '_', data.title.lower()).strip('_')[:20]
+        q_uid = f"{slug or 'q'}_{int(time.time()*1000)}"
+    if db.query(models.Question).filter_by(question_uid=q_uid).first():
+        q_uid = f"{q_uid}_{int(time.time()*1000)}"
+
+    data_dict = data.model_dump()
+    data_dict["question_uid"] = q_uid
+
+    q = models.Question(**data_dict)
     db.add(q)
     # bump topic verified count
-    topic = db.query(models.Topic).filter_by(id=data.topic_id).first()
-    if topic:
-        topic.verified_question_count = (topic.verified_question_count or 0) + 1
+    topic.verified_question_count = (topic.verified_question_count or 0) + 1
     db.commit()
     db.refresh(q)
     return q
@@ -739,6 +752,12 @@ def admin_get_assignment_questions(topic_id: int, db: Session = Depends(get_db),
 def admin_create_assignment_question(data: schemas.AssignmentQuestionCreate,
                                       db: Session = Depends(get_db),
                                       _: models.User = Depends(get_current_admin)):
+    if not data.topic_id or data.topic_id <= 0:
+        raise HTTPException(400, "Please select a valid topic")
+    topic = db.query(models.Topic).filter_by(id=data.topic_id).first()
+    if not topic:
+        raise HTTPException(404, "Selected topic not found")
+
     # Enforce limits: 20 MCQ, 5 coding per topic
     count = db.query(models.AssignmentQuestion).filter_by(
         topic_id=data.topic_id, type=data.type).count()

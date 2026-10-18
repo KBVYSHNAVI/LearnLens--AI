@@ -12,6 +12,74 @@ function getAuthHeader(): HeadersInit {
 
 import { mockPaths, mockTopicDetail, mockQuestions, mockDashboard, mockBadges } from './mockData';
 
+// ── Offline / Demo Persistence Layer ───────────────────────────────────────
+const STORAGE_QUESTIONS_KEY = 'learnlens_stored_questions';
+const STORAGE_ASSIGNMENTS_KEY = 'learnlens_stored_assignments';
+
+function getStoredQuestions(): Question[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_QUESTIONS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  try {
+    localStorage.setItem(STORAGE_QUESTIONS_KEY, JSON.stringify(mockQuestions));
+  } catch {}
+  return [...mockQuestions];
+}
+
+function saveStoredQuestions(qs: Question[]) {
+  try {
+    localStorage.setItem(STORAGE_QUESTIONS_KEY, JSON.stringify(qs));
+  } catch {}
+}
+
+const defaultAssignmentQuestions = [
+  {
+    id: 101,
+    topic_id: 1,
+    type: 'mcq',
+    title: 'Array Index Memory Offset',
+    description: 'How is the memory address of an array element calculated from base address B, element size S, and index i?',
+    difficulty: 'Easy',
+    options: JSON.stringify(['B + (i * S)', 'B + i + S', 'B * (i + S)', 'B + (i / S)']),
+    correct_answer: 'B + (i * S)',
+    explanation: 'Memory address calculation uses constant offset multiplication B + (i * S).',
+    hints: JSON.stringify(['Think about byte offsets']),
+    order: 1
+  },
+  {
+    id: 102,
+    topic_id: 1,
+    type: 'coding',
+    title: 'Two Sum Problem',
+    description: 'Given an array of integers and a target sum, output the indices of the two numbers that add up to target.',
+    difficulty: 'Easy',
+    starter_code_python: '# Two Sum\ndef two_sum(nums, target):\n    seen = {}\n    for i, num in enumerate(nums):\n        diff = target - num\n        if diff in seen:\n            return [seen[diff], i]\n        seen[num] = i\n    return []\n',
+    starter_code_java: 'import java.util.*;\npublic class Solution {\n    public static void main(String[] args) {\n        System.out.println("0 1");\n    }\n}',
+    starter_code_js: 'function twoSum(nums, target) { return [0, 1]; }',
+    test_cases: JSON.stringify([{ input: '2 7 11 15\\n9', expected_output: '0 1' }]),
+    hints: JSON.stringify(['Use a dictionary/hashmap to store indices of visited numbers']),
+    order: 1
+  }
+];
+
+function getStoredAssignmentQuestions(): any[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_ASSIGNMENTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  try {
+    localStorage.setItem(STORAGE_ASSIGNMENTS_KEY, JSON.stringify(defaultAssignmentQuestions));
+  } catch {}
+  return [...defaultAssignmentQuestions];
+}
+
+function saveStoredAssignmentQuestions(qs: any[]) {
+  try {
+    localStorage.setItem(STORAGE_ASSIGNMENTS_KEY, JSON.stringify(qs));
+  } catch {}
+}
+
 function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any {
   console.info(`[LearnLens Demo Mode] Falling back to offline data for: ${endpoint}`);
 
@@ -99,7 +167,10 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
 
   if (endpoint.startsWith('/topics/')) {
     if (endpoint.includes('/questions')) {
-      return mockQuestions;
+      const parts = endpoint.split('?')[0].split('/');
+      const tid = Number(parts[2]);
+      const qs = getStoredQuestions();
+      return tid ? qs.filter(q => q.topic_id === tid) : qs;
     }
     return mockTopicDetail;
   }
@@ -131,7 +202,9 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
         new_badges: []
       };
     }
-    return mockQuestions[1];
+    const qid = Number(endpoint.split('/')[2]);
+    const found = getStoredQuestions().find(q => q.id === qid);
+    return found || mockQuestions[1];
   }
 
   if (endpoint.startsWith('/dashboard/stats')) {
@@ -180,6 +253,7 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
     };
   }
 
+  // ── Student Assignments ──
   if (endpoint.startsWith('/assignments/')) {
     if (endpoint.endsWith('/run')) {
       return {
@@ -202,21 +276,47 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
         passed: true
       };
     }
+    const cleanEndpoint = endpoint.split('?')[0];
+    const tid = Number(cleanEndpoint.split('/').pop()) || 1;
+    const aqs = getStoredAssignmentQuestions().filter(q => q.topic_id === tid);
+    const mcqs = aqs.filter(q => q.type === 'mcq').map(q => {
+      let opts = [];
+      try { opts = typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch { opts = [q.options]; }
+      let hints = [];
+      try { hints = typeof q.hints === 'string' ? JSON.parse(q.hints) : q.hints; } catch {}
+      return { ...q, options: opts, hints };
+    });
+    const codings = aqs.filter(q => q.type === 'coding').map(q => {
+      let hints = [];
+      try { hints = typeof q.hints === 'string' ? JSON.parse(q.hints) : q.hints; } catch {}
+      return { ...q, hints };
+    });
     return {
-      topic_id: 1,
-      mcq_questions: [mockQuestions[0]],
-      coding_questions: [mockQuestions[1]],
+      topic_id: tid,
+      mcq_questions: mcqs.length > 0 ? mcqs : [mockQuestions[0]],
+      coding_questions: codings.length > 0 ? codings : [mockQuestions[1]],
       mcq_target: 20,
       coding_target: 5,
-      mcq_available: 1,
-      coding_available: 1,
+      mcq_available: mcqs.length || 1,
+      coding_available: codings.length || 1,
       previous_submission: null
     };
   }
 
+  // ── Admin Analytics ──
   if (endpoint.startsWith('/admin/analytics')) {
+    const totalQs = getStoredQuestions().length;
+    const totalAQs = getStoredAssignmentQuestions().length;
     return {
-      totals: { users: 24, questions: 18, submissions: 85, quizzes: 32, pass_rate: 88.5, learning_paths: 2, topics: 4 },
+      totals: {
+        users: 24,
+        questions: totalQs + totalAQs,
+        submissions: 85,
+        quizzes: 32,
+        pass_rate: 88.5,
+        learning_paths: mockPaths.length,
+        topics: mockPaths.flatMap(p => p.topics).length
+      },
       top_users: [
         { name: 'Aditya Rao', email: 'aditya@example.com', points: 340, streak: 12 },
         { name: 'Priya Sharma', email: 'priya@example.com', points: 290, streak: 9 },
@@ -227,7 +327,7 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
         { title: 'Array Index Access Time Complexity', attempts: 38 }
       ],
       topic_stats: [
-        { topic: 'Arrays & Two Pointers', completed: 15, questions: 2 },
+        { topic: 'Arrays & Two Pointers', completed: 15, questions: totalQs },
         { topic: 'Linked Lists', completed: 8, questions: 0 },
         { topic: 'Trees & Traversals', completed: 4, questions: 0 }
       ]
@@ -238,8 +338,66 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
     return mockPaths.flatMap(p => p.topics);
   }
 
+  // ── Admin Questions CRUD ──
   if (endpoint.startsWith('/admin/questions')) {
-    return mockQuestions;
+    const method = (options.method || 'GET').toUpperCase();
+    let qs = getStoredQuestions();
+
+    if (method === 'POST') {
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      const id = Date.now();
+      const uid = (body.question_uid || '').trim() || `q_${body.topic_id || 1}_${Date.now()}`;
+      const newQ: Question = {
+        id,
+        topic_id: Number(body.topic_id) || 1,
+        question_uid: uid,
+        title: body.title || 'Untitled Question',
+        difficulty: body.difficulty || 'Easy',
+        type: body.type || 'mcq',
+        description: body.description || '',
+        options: typeof body.options === 'string' ? body.options : JSON.stringify(body.options || []),
+        correct_answer: body.correct_answer || '',
+        explanation: body.explanation || '',
+        hints: typeof body.hints === 'string' ? body.hints : JSON.stringify(body.hints || []),
+        starter_code_python: body.starter_code_python || '',
+        starter_code_java: body.starter_code_java || '',
+        starter_code_js: body.starter_code_js || '',
+        reference_solution_python: body.reference_solution_python || '',
+        test_cases: typeof body.test_cases === 'string' ? body.test_cases : JSON.stringify(body.test_cases || []),
+        tags: typeof body.tags === 'string' ? body.tags : JSON.stringify(body.tags || []),
+        company_tags: typeof body.company_tags === 'string' ? body.company_tags : JSON.stringify(body.company_tags || []),
+        verified: true
+      };
+      qs.unshift(newQ);
+      saveStoredQuestions(qs);
+      return newQ;
+    }
+
+    if (method === 'PUT') {
+      const qid = Number(endpoint.split('/').pop());
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      qs = qs.map(q => q.id === qid ? { ...q, ...body } : q);
+      saveStoredQuestions(qs);
+      return qs.find(q => q.id === qid) || body;
+    }
+
+    if (method === 'DELETE') {
+      const qid = Number(endpoint.split('/').pop());
+      qs = qs.filter(q => q.id !== qid);
+      saveStoredQuestions(qs);
+      return { detail: 'deleted' };
+    }
+
+    // GET
+    const url = new URL(`http://dummy${endpoint}`);
+    const topicIdParam = url.searchParams.get('topic_id');
+    if (topicIdParam) {
+      const tid = Number(topicIdParam);
+      return qs.filter(q => q.topic_id === tid);
+    }
+    return qs;
   }
 
   if (endpoint.startsWith('/admin/paths')) {
@@ -253,10 +411,69 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
     ];
   }
 
+  // ── Admin Assignments CRUD & Stats ──
+  if (endpoint.startsWith('/admin/assignments/stats/overview')) {
+    const allAQs = getStoredAssignmentQuestions();
+    const allTopics = mockPaths.flatMap(p => p.topics);
+    return allTopics.map(t => {
+      const mcq = allAQs.filter(q => q.topic_id === t.id && q.type === 'mcq').length;
+      const coding = allAQs.filter(q => q.topic_id === t.id && q.type === 'coding').length;
+      return {
+        topic_id: t.id,
+        topic: t.title,
+        mcq,
+        coding,
+        complete: mcq >= 20 && coding >= 5,
+        submissions: 1
+      };
+    });
+  }
+
   if (endpoint.startsWith('/admin/assignments')) {
-    return [
-      { topic_id: 1, topic: 'Arrays & Two Pointers', mcq: 1, coding: 1, complete: false, submissions: 1 }
-    ];
+    const method = (options.method || 'GET').toUpperCase();
+    let aqs = getStoredAssignmentQuestions();
+
+    if (method === 'POST') {
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      const id = Date.now();
+      const newAQ = {
+        id,
+        topic_id: Number(body.topic_id) || 1,
+        type: body.type || 'mcq',
+        title: body.title || 'Untitled Assignment Question',
+        description: body.description || '',
+        difficulty: body.difficulty || 'Easy',
+        options: typeof body.options === 'string' ? body.options : JSON.stringify(body.options || []),
+        correct_answer: body.correct_answer || '',
+        explanation: body.explanation || '',
+        starter_code_python: body.starter_code_python || '',
+        starter_code_java: body.starter_code_java || '',
+        starter_code_js: body.starter_code_js || '',
+        reference_solution_python: body.reference_solution_python || '',
+        test_cases: typeof body.test_cases === 'string' ? body.test_cases : JSON.stringify(body.test_cases || []),
+        hints: typeof body.hints === 'string' ? body.hints : JSON.stringify(body.hints || []),
+        order: Number(body.order) || (aqs.length + 1)
+      };
+      aqs.push(newAQ);
+      saveStoredAssignmentQuestions(aqs);
+      return { id: newAQ.id, title: newAQ.title, type: newAQ.type };
+    }
+
+    if (method === 'DELETE') {
+      const id = Number(endpoint.split('/').pop());
+      aqs = aqs.filter(q => q.id !== id);
+      saveStoredAssignmentQuestions(aqs);
+      return { detail: 'deleted' };
+    }
+
+    // GET /admin/assignments/:topic_id
+    const parts = endpoint.split('?')[0].split('/');
+    const tid = Number(parts[parts.length - 1]);
+    if (tid) {
+      return aqs.filter(q => q.topic_id === tid);
+    }
+    return aqs;
   }
 
   return {};

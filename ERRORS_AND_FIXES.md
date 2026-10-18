@@ -104,6 +104,21 @@ This document details all the issues identified across the codebase and the exac
 
 ---
 
+### 8. Admin Question & Assignment Creation Not Persisting
+- **Location:** `frontend/src/services/api.ts`, `frontend/src/pages/AdminPanel.tsx`, `backend/app/main.py`
+- **Root Cause:**
+  - In demo / offline mode (including Vercel deployment), `POST /admin/questions` and `POST /admin/assignments` returned static mocks without persisting the newly submitted question, causing questions to disappear immediately after creation.
+  - `GET /admin/assignments` returned an overview stats array instead of question objects, causing the questions list to render 0 items.
+  - Submitting questions without selecting a topic (`topic_id: 0`) or without a UID caused backend foreign key/duplicate key exceptions.
+- **Fix:**
+  - Implemented full `localStorage` persistence layer (`learnlens_stored_questions` and `learnlens_stored_assignments`) in `frontend/src/services/api.ts` supporting full offline CRUD (Create, Read, Update, Delete) for questions, assignments, and real-time analytics calculation.
+  - Added form validation in `QuestionForm` and `AssignmentTab` ensuring valid topic selection and question title.
+  - Added smart auto-generation of unique `question_uid` (e.g. `arrays_findmax_1729...`) so admins never face manual UID collision or blank UID errors.
+  - Added input normalization for MCQ options and coding test cases, automatically converting plain text/comma lists to valid JSON arrays.
+  - Added backend validation in `backend/app/main.py` verifying topic existence and generating unique question UIDs automatically if omitted.
+
+---
+
 ## 🚀 How to Run the Project
 
 ### Start the Backend
