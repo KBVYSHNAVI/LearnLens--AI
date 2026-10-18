@@ -1129,7 +1129,7 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
 
 // ── Main AdminPanel ────────────────────────────────────────────────────────
 export const AdminPanel = () => {
-  const [authed] = useState(true); // Auth is handled by the shared login modal
+  const [authed, setAuthed] = useState(true); // Auth is handled by the shared login modal
   const [tab, setTab] = useState<AdminTab>('overview');
   const [topics, setTopics] = useState<Topic[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);

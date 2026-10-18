@@ -392,7 +392,7 @@ function AssignmentSection({ topicId, topicTitle }: { topicId: number; topicTitl
               try {
                 // Use a temp coding question ID via the regular run endpoint
                 // Since assignment questions are separate, we run code directly
-                const r = await api.runCode(0, lang, currentCode, '');
+                const r = await api.runCode(0, lang, currentCode, '') as any;
                 const passed = r.status === 'Passed' || (r.passed_count && r.passed_count === r.total_count);
                 setRunResults(prev => ({
                   ...prev,
