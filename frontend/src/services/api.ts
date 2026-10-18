@@ -641,6 +641,15 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
       return { id: newAQ.id, title: newAQ.title, type: newAQ.type };
     }
 
+    if (method === 'PUT') {
+      const id = Number(endpoint.split('/').pop());
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      aqs = aqs.map(q => q.id === id ? { ...q, ...body } : q);
+      saveStoredAssignmentQuestions(aqs);
+      return aqs.find(q => q.id === id) || body;
+    }
+
     if (method === 'DELETE') {
       const id = Number(endpoint.split('/').pop());
       aqs = aqs.filter(q => q.id !== id);
@@ -805,6 +814,9 @@ export const api = {
   adminGetAssignment: (topicId: number) => request<any[]>(`/admin/assignments/${topicId}`),
   adminCreateAssignmentQ: (data: any) =>
     request<any>('/admin/assignments', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateAssignmentQ: (id: number, data: any) =>
+    request<any>(`/admin/assignments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   adminDeleteAssignmentQ: (id: number) =>
     request<any>(`/admin/assignments/${id}`, { method: 'DELETE' }),
-  adminGetAssignmentStats: () => request<any[]>('/admin/assignments/stats/overview'),};
+  adminGetAssignmentStats: () => request<any[]>('/admin/assignments/stats/overview'),
+};

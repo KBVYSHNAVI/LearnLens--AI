@@ -831,6 +831,25 @@ def admin_create_assignment_question(data: schemas.AssignmentQuestionCreate,
     return {"id": q.id, "title": q.title, "type": q.type}
 
 
+@app.put("/api/admin/assignments/{qid}")
+def admin_update_assignment_question(qid: int, data: dict, db: Session = Depends(get_db),
+                                     _: models.User = Depends(get_current_admin)):
+    q = db.query(models.AssignmentQuestion).filter_by(id=qid).first()
+    if not q:
+        raise HTTPException(404, "Question not found")
+    allowed_fields = [
+        "title", "description", "difficulty", "type", "options", "correct_answer",
+        "explanation", "starter_code_python", "starter_code_java", "starter_code_js",
+        "reference_solution_python", "test_cases", "hints", "order", "topic_id"
+    ]
+    for k in allowed_fields:
+        if k in data and data[k] is not None:
+            setattr(q, k, data[k])
+    db.commit()
+    db.refresh(q)
+    return {"id": q.id, "title": q.title, "type": q.type}
+
+
 @app.delete("/api/admin/assignments/{qid}")
 def admin_delete_assignment_question(qid: int, db: Session = Depends(get_db),
                                       _: models.User = Depends(get_current_admin)):

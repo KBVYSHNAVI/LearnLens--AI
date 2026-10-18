@@ -147,8 +147,35 @@ This document details all the issues identified across the codebase and the exac
      - Added a Delete button with confirmation for Learning Paths.
      - Added an inline Edit modal/form for Topics allowing editing of title, category, difficulty, order, estimated minutes, and description.
      - Added distinct green success and red error alerts with auto-dismiss timers.
-  3. **Backend CRUD Endpoints (`main.py`):** Added `PUT /api/admin/paths/{pid}`, `DELETE /api/admin/paths/{pid}`, and `PUT /api/admin/topics/{tid}` with database persistence and authentication checks.
+  3. **Backend CRUD Endpoints (`main.py`):** Added `PUT /api/admin/paths/{pid}`, `DELETE /api/admin/paths/{pid}`, and `PUT /api/admin/topics/{tid}` with database persistence.
   4. **Frontend API methods:** Added `adminUpdatePath`, `adminDeletePath`, and `adminUpdateTopic` in `api.ts` with offline fallback handlers.
+
+---
+
+### 11. Admin Topic Assignments: Clear Choice Between MCQs and Coding Questions with Visual Builders
+- **Location:** `frontend/src/pages/AdminPanel.tsx`, `frontend/src/services/api.ts`, `backend/app/main.py`
+- **User Request & Issue:**
+  - In topic assignments (requiring 20 MCQs and 5 coding questions), admins previously only had a single ambiguous "+ Add Question" button with no upfront choice of whether to add an MCQ or a Coding problem.
+  - Options for MCQs and Test Cases for Coding required manually writing or pasting raw JSON strings (`["Option A", ...]` and `[{"input": "...", "expected_output": "..."}]`), which was cumbersome and prone to syntax errors.
+  - Admins had no way to edit existing assignment questions once added (only deletion was possible).
+- **Fix:**
+  1. **Direct Action Buttons in Topic Header:**
+     - Added prominent, direct action buttons: `Add MCQ Question (X/20)` and `Add Coding Problem (Y/5)` that pre-configure the question type and appropriate order number.
+  2. **Prominent Choice Selector in Question Form:**
+     - Added two large interactive cards: **📝 Multiple Choice (MCQ)** and **💻 Coding Problem** with real-time progress badges (`X/20 Added`, `Y/5 Added`), detailed descriptions, and instant switching.
+  3. **Visual 4-Options Builder for MCQs:**
+     - Provided 4 dedicated Option input boxes (Option A, Option B, Option C, Option D) with a 1-click "Mark Correct" button next to each option that dynamically updates the correct answer and highlights it with a green badge and checkmark.
+     - Preserved raw JSON mode as an optional toggle for power users.
+  4. **Visual Test Cases Builder for Coding Questions:**
+     - Provided an interactive test cases builder with Input (stdin) and Expected Output fields, "+ Add Test Case" button, and deletion per test case.
+     - Provided pre-populated starter code templates for Python, Java, and JavaScript.
+  5. **Question List Filter Tabs & Edit Support:**
+     - Added filter tabs: `All Questions (N)`, `📝 MCQs (X/20)`, and `💻 Coding (Y/5)`.
+     - Added an **Edit** button (pencil icon) for every assignment question card, allowing admins to edit any existing MCQ or coding question seamlessly.
+  6. **Backend & Offline CRUD Persistence:**
+     - Added `PUT /api/admin/assignments/{qid}` endpoint in `backend/app/main.py`.
+     - Added `PUT` handling for offline fallback in `frontend/src/services/api.ts`.
+     - Added `adminUpdateAssignmentQ(id, data)` in the API client.
 
 ---
 

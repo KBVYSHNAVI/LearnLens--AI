@@ -944,9 +944,11 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
 // ── Assignment Tab ─────────────────────────────────────────────────────────
 const EMPTY_AQ = {
   topic_id: 0, type: 'mcq', title: '', description: '', difficulty: 'Easy',
-  options: '["Option A","Option B","Option C","Option D"]', correct_answer: '',
-  explanation: '', starter_code_python: '', starter_code_java: '', starter_code_js: '',
-  reference_solution_python: '', test_cases: '[]', hints: '[]', order: 1
+  options: '["Option A","Option B","Option C","Option D"]', correct_answer: 'Option A',
+  explanation: '', starter_code_python: 'def solution():\n    # write your solution here\n    pass',
+  starter_code_java: 'class Solution {\n    public static void main(String[] args) {\n        // write your solution here\n    }\n}',
+  starter_code_js: 'function solution() {\n    // write your solution here\n}',
+  reference_solution_python: '', test_cases: '[{"input":"","expected_output":""}]', hints: '[]', order: 1
 };
 
 function AssignmentTab({ topics }: { topics: any[] }) {
@@ -954,12 +956,24 @@ function AssignmentTab({ topics }: { topics: any[] }) {
   const [questions, setQuestions] = useState<any[]>([]);
   const [stats, setStats] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...EMPTY_AQ });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [loadingQ, setLoadingQ] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'mcq' | 'coding'>('all');
+
+  // Visual helper states for MCQ options and Coding test cases
+  const [mcqOptionsList, setMcqOptionsList] = useState<string[]>(['Option A', 'Option B', 'Option C', 'Option D']);
+  const [mcqCorrectIdx, setMcqCorrectIdx] = useState<number>(0);
+  const [useRawOptions, setUseRawOptions] = useState(false);
+
+  const [testCasesList, setTestCasesList] = useState<{ input: string; expected_output: string }[]>([
+    { input: '', expected_output: '' }
+  ]);
+  const [useRawTestCases, setUseRawTestCases] = useState(false);
 
   const setF = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -970,18 +984,152 @@ function AssignmentTab({ topics }: { topics: any[] }) {
 
   // Load questions when topic changes
   useEffect(() => {
-    if (!selectedTopic) { setQuestions([]); return; }
+    if (!selectedTopic) {
+      setQuestions([]);
+      setShowForm(false);
+      setEditingId(null);
+      return;
+    }
     setLoadingQ(true);
-    api.adminGetAssignment(selectedTopic).then(setQuestions).catch(() => {}).finally(() => setLoadingQ(false));
+    api.adminGetAssignment(selectedTopic)
+      .then(setQuestions)
+      .catch(() => {})
+      .finally(() => setLoadingQ(false));
   }, [selectedTopic]);
+
+  // Auto-dismiss messages
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(''), 4000);
+    return () => clearTimeout(t);
+  }, [msg]);
 
   const mcqs = questions.filter(q => q.type === 'mcq');
   const coding = questions.filter(q => q.type === 'coding');
   const topicStat = stats.find(s => s.topic_id === selectedTopic);
+  const currentTopic = topics.find(t => t.id === selectedTopic);
+
+  // Helper to open form pre-configured for MCQ or Coding
+  const openNewQuestion = (type: 'mcq' | 'coding') => {
+    setEditingId(null);
+    setError('');
+    const nextOrder = type === 'mcq' ? (mcqs.length + 1) : (coding.length + 1);
+    const initialOptions = ['Option A', 'Option B', 'Option C', 'Option D'];
+    setMcqOptionsList(initialOptions);
+    setMcqCorrectIdx(0);
+    setUseRawOptions(false);
+
+    const initialTestCases = [{ input: '', expected_output: '' }];
+    setTestCasesList(initialTestCases);
+    setUseRawTestCases(false);
+
+    setForm({
+      ...EMPTY_AQ,
+      topic_id: selectedTopic,
+      type,
+      order: nextOrder,
+      options: JSON.stringify(initialOptions),
+      correct_answer: initialOptions[0],
+      test_cases: JSON.stringify(initialTestCases)
+    });
+    setShowForm(true);
+  };
+
+  // Helper to edit an existing question
+  const startEditQuestion = (q: any) => {
+    setEditingId(q.id);
+    setError('');
+    let parsedOpts = ['Option A', 'Option B', 'Option C', 'Option D'];
+    try {
+      const p = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
+      if (Array.isArray(p) && p.length > 0) {
+        parsedOpts = p.map((x: any) => String(x));
+        while (parsedOpts.length < 4) parsedOpts.push(`Option ${String.fromCharCode(65 + parsedOpts.length)}`);
+      }
+    } catch {}
+    setMcqOptionsList(parsedOpts);
+    const matchIdx = parsedOpts.findIndex((opt: string) => opt.trim().toLowerCase() === (q.correct_answer || '').trim().toLowerCase());
+    setMcqCorrectIdx(matchIdx >= 0 ? matchIdx : 0);
+    setUseRawOptions(false);
+
+    let parsedTC = [{ input: '', expected_output: '' }];
+    try {
+      const tc = typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : q.test_cases;
+      if (Array.isArray(tc) && tc.length > 0) {
+        parsedTC = tc.map((t: any) => ({
+          input: t.input ?? '',
+          expected_output: t.expected_output ?? t.expected ?? ''
+        }));
+      }
+    } catch {}
+    setTestCasesList(parsedTC);
+    setUseRawTestCases(false);
+
+    setForm({
+      topic_id: q.topic_id || selectedTopic,
+      type: q.type || 'mcq',
+      title: q.title || '',
+      description: q.description || '',
+      difficulty: q.difficulty || 'Easy',
+      options: typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
+      correct_answer: q.correct_answer || (parsedOpts[0] || ''),
+      explanation: q.explanation || '',
+      starter_code_python: q.starter_code_python || EMPTY_AQ.starter_code_python,
+      starter_code_java: q.starter_code_java || EMPTY_AQ.starter_code_java,
+      starter_code_js: q.starter_code_js || EMPTY_AQ.starter_code_js,
+      reference_solution_python: q.reference_solution_python || '',
+      test_cases: typeof q.test_cases === 'string' ? q.test_cases : JSON.stringify(q.test_cases || []),
+      hints: typeof q.hints === 'string' ? q.hints : JSON.stringify(q.hints || []),
+      order: q.order || 1
+    });
+    setShowForm(true);
+  };
+
+  // Sync MCQ visual options changes
+  const updateOptionText = (index: number, text: string) => {
+    const next = [...mcqOptionsList];
+    next[index] = text;
+    setMcqOptionsList(next);
+    setForm(f => ({
+      ...f,
+      options: JSON.stringify(next),
+      correct_answer: next[mcqCorrectIdx] || text
+    }));
+  };
+
+  const selectCorrectOption = (index: number) => {
+    setMcqCorrectIdx(index);
+    setForm(f => ({
+      ...f,
+      correct_answer: mcqOptionsList[index] || ''
+    }));
+  };
+
+  // Sync Coding test case changes
+  const updateTestCase = (index: number, field: 'input' | 'expected_output', value: string) => {
+    const next = [...testCasesList];
+    next[index] = { ...next[index], [field]: value };
+    setTestCasesList(next);
+    setForm(f => ({ ...f, test_cases: JSON.stringify(next) }));
+  };
+
+  const addTestCase = () => {
+    const next = [...testCasesList, { input: '', expected_output: '' }];
+    setTestCasesList(next);
+    setForm(f => ({ ...f, test_cases: JSON.stringify(next) }));
+  };
+
+  const removeTestCase = (index: number) => {
+    if (testCasesList.length <= 1) return;
+    const next = testCasesList.filter((_, i) => i !== index);
+    setTestCasesList(next);
+    setForm(f => ({ ...f, test_cases: JSON.stringify(next) }));
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setSaving(true);
+    setError('');
+    setSaving(true);
     if (!selectedTopic || selectedTopic === 0) {
       setError('Please select a topic first.');
       setSaving(false);
@@ -994,23 +1142,34 @@ function AssignmentTab({ topics }: { topics: any[] }) {
     }
 
     let finalOptions = form.options;
+    let finalCorrectAnswer = form.correct_answer;
+
     if (form.type === 'mcq') {
-      try {
-        const parsed = JSON.parse(finalOptions);
-        if (!Array.isArray(parsed)) finalOptions = JSON.stringify([finalOptions]);
-      } catch {
-        const items = (finalOptions || '').split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
-        finalOptions = JSON.stringify(items.length > 0 ? items : ['Option A', 'Option B', 'Option C', 'Option D']);
+      if (!useRawOptions) {
+        finalOptions = JSON.stringify(mcqOptionsList.filter(o => o.trim().length > 0));
+        finalCorrectAnswer = mcqOptionsList[mcqCorrectIdx] || mcqOptionsList[0] || '';
+      } else {
+        try {
+          const parsed = JSON.parse(finalOptions);
+          if (!Array.isArray(parsed)) finalOptions = JSON.stringify([finalOptions]);
+        } catch {
+          const items = (finalOptions || '').split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
+          finalOptions = JSON.stringify(items.length > 0 ? items : ['Option A', 'Option B', 'Option C', 'Option D']);
+        }
       }
     }
 
     let finalTestCases = form.test_cases;
     if (form.type === 'coding') {
-      try {
-        const parsed = JSON.parse(finalTestCases);
-        if (!Array.isArray(parsed)) finalTestCases = JSON.stringify([parsed]);
-      } catch {
-        finalTestCases = JSON.stringify([{ input: '', expected_output: '' }]);
+      if (!useRawTestCases) {
+        finalTestCases = JSON.stringify(testCasesList);
+      } else {
+        try {
+          const parsed = JSON.parse(finalTestCases);
+          if (!Array.isArray(parsed)) finalTestCases = JSON.stringify([parsed]);
+        } catch {
+          finalTestCases = JSON.stringify([{ input: '', expected_output: '' }]);
+        }
       }
     }
 
@@ -1018,262 +1177,596 @@ function AssignmentTab({ topics }: { topics: any[] }) {
       ...form,
       topic_id: selectedTopic,
       options: finalOptions,
+      correct_answer: finalCorrectAnswer,
       test_cases: finalTestCases
     };
 
     try {
-      await api.adminCreateAssignmentQ(payload);
-      setMsg('Question added successfully!');
+      if (editingId) {
+        await api.adminUpdateAssignmentQ(editingId, payload);
+        setMsg('Assignment question updated successfully!');
+      } else {
+        await api.adminCreateAssignmentQ(payload);
+        setMsg(`Added new ${form.type === 'mcq' ? 'MCQ question' : 'coding problem'} successfully!`);
+      }
       setShowForm(false);
+      setEditingId(null);
       setForm({ ...EMPTY_AQ, topic_id: selectedTopic });
       const updated = await api.adminGetAssignment(selectedTopic);
       setQuestions(updated);
       api.adminGetAssignmentStats().then(setStats).catch(() => {});
-    } catch (err: any) { setError(err.message || 'Failed to save'); }
+    } catch (err: any) {
+      setError(err.message || 'Failed to save question');
+    }
     setSaving(false);
   };
 
   const del = async (id: number) => {
-    if (!confirm('Delete this assignment question?')) return;
+    if (!confirm('Are you sure you want to delete this assignment question?')) return;
     setDeleting(id);
     try {
       await api.adminDeleteAssignmentQ(id);
       setQuestions(qs => qs.filter(q => q.id !== id));
+      setMsg('Question deleted successfully.');
       api.adminGetAssignmentStats().then(setStats).catch(() => {});
-    } catch {}
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete question');
+    }
     setDeleting(null);
   };
 
+  const displayedQuestions = questions.filter(q => {
+    if (activeFilter === 'mcq') return q.type === 'mcq';
+    if (activeFilter === 'coding') return q.type === 'coding';
+    return true;
+  });
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold">Topic Assignments</h2>
-        <p className="text-slate-400 text-sm mt-1">Each topic needs 20 MCQs + 5 coding questions for the assignment.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-brand-400" />
+            Topic Assignments
+          </h2>
+          <p className="text-slate-400 text-sm mt-1">
+            Choose whether to add <strong>Multiple Choice Questions (20 MCQs)</strong> or <strong>Practical Coding Problems (5 Coding)</strong> for each topic assignment.
+          </p>
+        </div>
       </div>
 
-      {/* Stats grid */}
+      {/* Stats overview cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {stats.slice(0, 9).map(s => (
-          <button key={s.topic_id} onClick={() => { setSelectedTopic(s.topic_id); setShowForm(false); }}
+          <button key={s.topic_id} onClick={() => { setSelectedTopic(s.topic_id); setShowForm(false); setEditingId(null); }}
             className={`text-left px-4 py-3 rounded-xl border transition ${
               selectedTopic === s.topic_id
-                ? 'bg-brand-600/20 border-brand-500/60'
+                ? 'bg-brand-600/20 border-brand-500/70 shadow-sm shadow-brand-500/10'
                 : 'bg-navy-800 border-navy-700 hover:border-brand-500/40'
             }`}>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium truncate">{s.topic}</span>
+              <span className="text-sm font-semibold truncate">{s.topic}</span>
               {s.complete
                 ? <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0"/>
                 : <AlertCircle className="w-4 h-4 text-amber-400 shrink-0"/>}
             </div>
             <div className="flex gap-3 text-xs text-slate-400">
-              <span className={s.mcq >= 20 ? 'text-green-400' : 'text-amber-400'}>MCQ {s.mcq}/20</span>
-              <span className={s.coding >= 5 ? 'text-green-400' : 'text-amber-400'}>Code {s.coding}/5</span>
-              {s.submissions > 0 && <span className="text-slate-500">{s.submissions} submissions</span>}
+              <span className={s.mcq >= 20 ? 'text-green-400 font-medium' : 'text-amber-400'}>📝 MCQ: {s.mcq}/20</span>
+              <span className={s.coding >= 5 ? 'text-green-400 font-medium' : 'text-amber-400'}>💻 Code: {s.coding}/5</span>
+              {s.submissions > 0 && <span className="text-slate-500">{s.submissions} subs</span>}
             </div>
           </button>
         ))}
       </div>
 
-      {/* Topic selector (full dropdown for all topics) */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <select value={selectedTopic} onChange={e => { setSelectedTopic(Number(e.target.value)); setShowForm(false); }}
-            className="w-full appearance-none bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 pr-8">
-            <option value={0}>Select a topic…</option>
-            {topics.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-          </select>
-          <ChevronDown className="w-4 h-4 absolute right-2 top-2.5 text-slate-500 pointer-events-none"/>
+      {/* Topic selection and Add action buttons */}
+      <div className="bg-navy-800/80 border border-navy-700 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-[260px] max-w-md">
+          <label className="text-xs font-semibold text-slate-400 whitespace-nowrap">Topic:</label>
+          <div className="relative flex-1">
+            <select value={selectedTopic} onChange={e => { setSelectedTopic(Number(e.target.value)); setShowForm(false); setEditingId(null); }}
+              className="w-full appearance-none bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 pr-8 font-medium">
+              <option value={0}>Choose a topic to manage assignment…</option>
+              {topics.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+            </select>
+            <ChevronDown className="w-4 h-4 absolute right-2.5 top-2.5 text-slate-400 pointer-events-none"/>
+          </div>
         </div>
+
+        {/* Clear direct choice buttons to add MCQs or Coding questions */}
         {selectedTopic > 0 && (
-          <button onClick={() => { setShowForm(true); setForm({ ...EMPTY_AQ, topic_id: selectedTopic }); setError(''); }}
-            disabled={showForm}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm font-semibold transition disabled:opacity-40">
-            <Plus className="w-4 h-4"/>Add Question
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => openNewQuestion('mcq')}
+              className="flex items-center gap-2 px-3.5 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm font-semibold transition shadow-sm text-white"
+            >
+              <Plus className="w-4 h-4"/>
+              <span>Add MCQ Question</span>
+              <span className="text-xs bg-brand-900/60 px-2 py-0.5 rounded-full font-mono text-brand-200">
+                {mcqs.length}/20
+              </span>
+            </button>
+            <button
+              onClick={() => openNewQuestion('coding')}
+              className="flex items-center gap-2 px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-semibold transition shadow-sm text-white"
+            >
+              <Code2 className="w-4 h-4"/>
+              <span>Add Coding Problem</span>
+              <span className="text-xs bg-cyan-900/60 px-2 py-0.5 rounded-full font-mono text-cyan-200">
+                {coding.length}/5
+              </span>
+            </button>
+          </div>
         )}
       </div>
 
-      {msg && <div className="flex items-center gap-2 text-green-400 text-sm bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2"><CheckCircle2 className="w-4 h-4"/>{msg}</div>}
+      {msg && (
+        <div className="flex items-center gap-2 text-green-400 text-sm bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
+          <CheckCircle2 className="w-4 h-4 shrink-0"/>{msg}
+        </div>
+      )}
+
+      {error && !showForm && (
+        <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+          <AlertCircle className="w-4 h-4 shrink-0"/>{error}
+        </div>
+      )}
 
       {selectedTopic > 0 && (
         <>
-          {/* Progress bar */}
+          {/* Progress overview for selected topic */}
           {topicStat && (
             <div className="bg-navy-800 border border-navy-700 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <span className="font-semibold">{topicStat.topic} — Assignment Progress</span>
+                <span className="font-semibold text-slate-200">{topicStat.topic} — Assignment Status</span>
                 {topicStat.complete
-                  ? <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2.5 py-0.5 rounded-full">✓ Complete</span>
-                  : <span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-0.5 rounded-full">Incomplete</span>}
+                  ? <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-3 py-1 rounded-full font-semibold">✓ Assignment Complete (20 MCQs + 5 Coding)</span>
+                  : <span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-full font-medium">Assignment Incomplete</span>}
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400">MCQ Questions</span>
-                    <span className={topicStat.mcq >= 20 ? 'text-green-400' : 'text-amber-400'}>{topicStat.mcq} / 20</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-navy-900/50 p-3 rounded-lg border border-navy-700/50">
+                  <div className="flex justify-between text-xs mb-1.5 font-medium">
+                    <span className="text-slate-300 flex items-center gap-1.5">
+                      <span>📝</span> Multiple Choice Questions (MCQ)
+                    </span>
+                    <span className={topicStat.mcq >= 20 ? 'text-green-400 font-bold' : 'text-amber-400 font-bold'}>
+                      {topicStat.mcq} / 20
+                    </span>
                   </div>
-                  <div className="h-2 bg-navy-700 rounded-full overflow-hidden">
+                  <div className="h-2.5 bg-navy-700 rounded-full overflow-hidden">
                     <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.min(topicStat.mcq / 20 * 100, 100)}%` }}/>
                   </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    {topicStat.mcq >= 20 ? 'All 20 MCQs ready' : `${20 - topicStat.mcq} more MCQs needed to complete assignment`}
+                  </p>
                 </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400">Coding Questions</span>
-                    <span className={topicStat.coding >= 5 ? 'text-green-400' : 'text-amber-400'}>{topicStat.coding} / 5</span>
+                <div className="bg-navy-900/50 p-3 rounded-lg border border-navy-700/50">
+                  <div className="flex justify-between text-xs mb-1.5 font-medium">
+                    <span className="text-slate-300 flex items-center gap-1.5">
+                      <span>💻</span> Practical Coding Problems
+                    </span>
+                    <span className={topicStat.coding >= 5 ? 'text-green-400 font-bold' : 'text-amber-400 font-bold'}>
+                      {topicStat.coding} / 5
+                    </span>
                   </div>
-                  <div className="h-2 bg-navy-700 rounded-full overflow-hidden">
+                  <div className="h-2.5 bg-navy-700 rounded-full overflow-hidden">
                     <div className="h-full bg-cyan-500 rounded-full transition-all" style={{ width: `${Math.min(topicStat.coding / 5 * 100, 100)}%` }}/>
                   </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    {topicStat.coding >= 5 ? 'All 5 Coding problems ready' : `${5 - topicStat.coding} more coding problems needed`}
+                  </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Add question form */}
+          {/* Form to Add or Edit Assignment Question */}
           {showForm && (
-            <div className="bg-navy-800 border border-navy-700 rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-lg">Add Assignment Question</h3>
-                <button onClick={() => setShowForm(false)} className="text-slate-500 hover:text-white"><X className="w-5 h-5"/></button>
+            <div className="bg-navy-800 border-2 border-brand-500/50 rounded-2xl p-6 shadow-xl space-y-5 animate-in fade-in">
+              <div className="flex items-center justify-between pb-3 border-b border-navy-700">
+                <div>
+                  <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                    {editingId ? <Pencil className="w-5 h-5 text-amber-400"/> : <Plus className="w-5 h-5 text-brand-400"/>}
+                    {editingId ? 'Edit Assignment Question' : 'Add Assignment Question'}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    For Topic: <strong className="text-slate-200">{currentTopic?.title}</strong>
+                  </p>
+                </div>
+                <button onClick={() => { setShowForm(false); setEditingId(null); }} className="p-1.5 text-slate-400 hover:text-white hover:bg-navy-700 rounded-lg transition">
+                  <X className="w-5 h-5"/>
+                </button>
               </div>
-              <form onSubmit={save} className="space-y-4">
-                {/* Type + Difficulty */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">Question Type</label>
-                    <div className="flex gap-2">
-                      {['mcq','coding'].map(t => (
-                        <button key={t} type="button" onClick={() => setF('type', t)}
-                          className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition ${
-                            form.type === t ? 'bg-brand-600 border-brand-500 text-white' : 'bg-navy-900 border-navy-700 text-slate-400 hover:text-white'
-                          }`}>
-                          {t === 'mcq' ? '📝 MCQ' : '💻 Coding'}
-                          {form.type === t && (
-                            <span className="ml-1 text-xs opacity-70">
-                              ({form.type === 'mcq' ? `${mcqs.length}/20` : `${coding.length}/5`})
-                            </span>
-                          )}
-                        </button>
-                      ))}
+
+              {/* 🌟 DIRECT CHOICE SELECTOR: MCQ vs Coding Question */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wider">
+                  Choose Question Type:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setF('type', 'mcq');
+                      if (!editingId && form.order > 20) setF('order', mcqs.length + 1);
+                    }}
+                    className={`flex items-start gap-3 p-4 rounded-xl border text-left transition ${
+                      form.type === 'mcq'
+                        ? 'bg-brand-600/25 border-brand-500 shadow-md shadow-brand-500/20'
+                        : 'bg-navy-900/60 border-navy-700 hover:border-slate-600 text-slate-400'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-lg text-xl ${form.type === 'mcq' ? 'bg-brand-600 text-white' : 'bg-navy-800 text-slate-400'}`}>
+                      📝
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={`font-bold text-sm ${form.type === 'mcq' ? 'text-white' : 'text-slate-300'}`}>
+                          Multiple Choice (MCQ)
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-mono font-semibold ${mcqs.length >= 20 ? 'bg-green-500/20 text-green-400' : 'bg-brand-500/20 text-brand-300'}`}>
+                          {mcqs.length}/20 Added
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        4 answer options with 1 correct choice. Tests conceptual understanding and analytical speed.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setF('type', 'coding');
+                      if (!editingId && form.order > 5) setF('order', coding.length + 1);
+                    }}
+                    className={`flex items-start gap-3 p-4 rounded-xl border text-left transition ${
+                      form.type === 'coding'
+                        ? 'bg-cyan-600/25 border-cyan-500 shadow-md shadow-cyan-500/20'
+                        : 'bg-navy-900/60 border-navy-700 hover:border-slate-600 text-slate-400'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-lg text-xl ${form.type === 'coding' ? 'bg-cyan-600 text-white' : 'bg-navy-800 text-slate-400'}`}>
+                      💻
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={`font-bold text-sm ${form.type === 'coding' ? 'text-white' : 'text-slate-300'}`}>
+                          Practical Coding Problem
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-mono font-semibold ${coding.length >= 5 ? 'bg-green-500/20 text-green-400' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                          {coding.length}/5 Added
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Hands-on problem statement tested against automated test cases in Python, Java, or JavaScript.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Form fields */}
+              <form onSubmit={save} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Question Title *
+                    </label>
+                    <input
+                      value={form.title}
+                      onChange={e => setF('title', e.target.value)}
+                      required
+                      placeholder={form.type === 'mcq' ? "e.g. Time complexity of binary search" : "e.g. Find pair with given sum in sorted array"}
+                      className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">Difficulty</label>
                     <div className="relative">
-                      <select value={form.difficulty} onChange={e => setF('difficulty', e.target.value)}
-                        className="w-full appearance-none bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 pr-8">
-                        {['Easy','Medium','Hard'].map(d => <option key={d}>{d}</option>)}
+                      <select
+                        value={form.difficulty}
+                        onChange={e => setF('difficulty', e.target.value)}
+                        className="w-full appearance-none bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 pr-8"
+                      >
+                        {['Easy', 'Medium', 'Hard'].map(d => <option key={d}>{d}</option>)}
                       </select>
                       <ChevronDown className="w-4 h-4 absolute right-2 top-2.5 text-slate-500 pointer-events-none"/>
                     </div>
                   </div>
                 </div>
 
-                {/* Title */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Title *</label>
-                  <input value={form.title} onChange={e => setF('title', e.target.value)} required
-                    placeholder="Question title..."
-                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"/>
-                </div>
-
                 {/* Description */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Description / Problem Statement *</label>
-                  <textarea value={form.description} onChange={e => setF('description', e.target.value)} required rows={4}
-                    placeholder="Full question text..."
-                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-y"/>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    Problem Statement / Question Text *
+                  </label>
+                  <textarea
+                    value={form.description}
+                    onChange={e => setF('description', e.target.value)}
+                    required
+                    rows={form.type === 'coding' ? 4 : 3}
+                    placeholder={form.type === 'mcq' ? "Write the question text clearly..." : "Detailed problem description, constraints, input/output format..."}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-y"
+                  />
                 </div>
 
-                {/* MCQ-specific */}
+                {/* 📝 MCQ SPECIFIC FIELDS: Intuitive 4-options editor */}
                 {form.type === 'mcq' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Options (JSON array)</label>
-                      <textarea value={form.options} onChange={e => setF('options', e.target.value)} rows={2}
-                        placeholder='["Option A","Option B","Option C","Option D"]'
-                        className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none font-mono"/>
+                  <div className="space-y-3 bg-navy-900/60 p-4 rounded-xl border border-navy-700/80">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-brand-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>📝</span> Answer Options & Correct Answer
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setUseRawOptions(!useRawOptions)}
+                        className="text-xs text-brand-400 hover:text-brand-300 underline"
+                      >
+                        {useRawOptions ? '← Use visual 4-options editor' : 'Switch to Raw JSON options'}
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+
+                    {!useRawOptions ? (
+                      <div className="space-y-2.5">
+                        <p className="text-xs text-slate-400">
+                          Type each option text below, and click the checkmark button next to the one that is the <strong>correct answer</strong>.
+                        </p>
+                        {mcqOptionsList.map((opt, idx) => {
+                          const letter = String.fromCharCode(65 + idx);
+                          const isCorrect = mcqCorrectIdx === idx;
+                          return (
+                            <div key={idx} className={`flex items-center gap-2 p-2 rounded-lg border transition ${
+                              isCorrect ? 'bg-green-500/10 border-green-500/40' : 'bg-navy-900 border-navy-700'
+                            }`}>
+                              <span className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold shrink-0 ${
+                                isCorrect ? 'bg-green-500 text-navy-950 font-black' : 'bg-navy-800 text-slate-400'
+                              }`}>
+                                {letter}
+                              </span>
+                              <input
+                                value={opt}
+                                onChange={e => updateOptionText(idx, e.target.value)}
+                                placeholder={`Option ${letter} text...`}
+                                className="flex-1 bg-transparent border-0 text-sm focus:outline-none text-slate-200"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => selectCorrectOption(idx)}
+                                className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
+                                  isCorrect
+                                    ? 'bg-green-500 text-navy-950 font-bold shadow-sm'
+                                    : 'bg-navy-800 text-slate-400 hover:text-white hover:bg-navy-700'
+                                }`}
+                              >
+                                {isCorrect ? (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5"/> Correct Answer
+                                  </>
+                                ) : (
+                                  'Mark Correct'
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Correct Answer</label>
-                        <input value={form.correct_answer} onChange={e => setF('correct_answer', e.target.value)}
-                          placeholder="Option A"
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"/>
+                        <textarea
+                          value={form.options}
+                          onChange={e => setF('options', e.target.value)}
+                          rows={2}
+                          placeholder='["Option A","Option B","Option C","Option D"]'
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none font-mono"
+                        />
+                        <div className="mt-2">
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">Correct Answer (Exact string)</label>
+                          <input
+                            value={form.correct_answer}
+                            onChange={e => setF('correct_answer', e.target.value)}
+                            placeholder="e.g. Option A"
+                            className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Explanation (Shown after student submits)</label>
+                        <textarea
+                          value={form.explanation}
+                          onChange={e => setF('explanation', e.target.value)}
+                          rows={2}
+                          placeholder="Why is this answer correct? Explanation helps placement preparation..."
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none"
+                        />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Order (1-20)</label>
-                        <input type="number" min={1} max={20} value={form.order} onChange={e => setF('order', Number(e.target.value))}
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"/>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Question Order (1 - 20)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={form.order}
+                          onChange={e => setF('order', Number(e.target.value))}
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                        />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Explanation</label>
-                      <textarea value={form.explanation} onChange={e => setF('explanation', e.target.value)} rows={2}
-                        placeholder="Explain the correct answer..."
-                        className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none"/>
-                    </div>
-                  </>
+                  </div>
                 )}
 
-                {/* Coding-specific */}
+                {/* 💻 CODING SPECIFIC FIELDS: Test Cases Builder & Code Templates */}
                 {form.type === 'coding' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Test Cases (JSON)</label>
-                      <textarea value={form.test_cases} onChange={e => setF('test_cases', e.target.value)} rows={3}
-                        placeholder={'[{"input":"5\\n1 2 3 4 5","expected_output":"5"}]'}
-                        className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-y font-mono"/>
+                  <div className="space-y-4 bg-navy-900/60 p-4 rounded-xl border border-navy-700/80">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>💻</span> Automated Test Cases
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setUseRawTestCases(!useRawTestCases)}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                      >
+                        {useRawTestCases ? '← Use visual test cases list' : 'Switch to Raw JSON test cases'}
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+
+                    {!useRawTestCases ? (
+                      <div className="space-y-3">
+                        {testCasesList.map((tc, idx) => (
+                          <div key={idx} className="bg-navy-900 border border-navy-700 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-slate-300">Test Case #{idx + 1}</span>
+                              {testCasesList.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeTestCase(idx)}
+                                  className="text-slate-500 hover:text-red-400 text-xs flex items-center gap-1 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5"/> Remove
+                                </button>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-400 mb-0.5">Input (stdin)</label>
+                                <textarea
+                                  value={tc.input}
+                                  onChange={e => updateTestCase(idx, 'input', e.target.value)}
+                                  rows={2}
+                                  placeholder="e.g. 5&#10;1 2 3 4 5"
+                                  className="w-full bg-navy-950 border border-navy-700 rounded px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-400 mb-0.5">Expected Output</label>
+                                <textarea
+                                  value={tc.expected_output}
+                                  onChange={e => updateTestCase(idx, 'expected_output', e.target.value)}
+                                  rows={2}
+                                  placeholder="e.g. 5"
+                                  className="w-full bg-navy-950 border border-navy-700 rounded px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={addTestCase}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-800 hover:bg-navy-700 border border-navy-700 rounded-lg text-xs font-semibold text-cyan-400 transition"
+                        >
+                          <Plus className="w-3.5 h-3.5"/> Add Another Test Case
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <textarea
+                          value={form.test_cases}
+                          onChange={e => setF('test_cases', e.target.value)}
+                          rows={3}
+                          placeholder={'[{"input":"5\\n1 2 3 4 5","expected_output":"5"}]'}
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 resize-y font-mono"
+                        />
+                      </div>
+                    )}
+
+                    {/* Starter Code Fields */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Starter Code (Python)</label>
-                        <textarea value={form.starter_code_python} onChange={e => setF('starter_code_python', e.target.value)} rows={3}
-                          placeholder="def solution():\n    pass"
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-y font-mono"/>
+                        <textarea
+                          value={form.starter_code_python}
+                          onChange={e => setF('starter_code_python', e.target.value)}
+                          rows={3}
+                          className="w-full bg-navy-950 border border-navy-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-y"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Reference Solution (Python)</label>
-                        <textarea value={form.reference_solution_python} onChange={e => setF('reference_solution_python', e.target.value)} rows={3}
-                          placeholder="def solution():\n    ..."
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-y font-mono"/>
+                        <textarea
+                          value={form.reference_solution_python}
+                          onChange={e => setF('reference_solution_python', e.target.value)}
+                          rows={3}
+                          placeholder="def solution():&#10;    # complete working solution"
+                          className="w-full bg-navy-950 border border-navy-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-y"
+                        />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Starter Code (Java)</label>
-                        <textarea value={form.starter_code_java} onChange={e => setF('starter_code_java', e.target.value)} rows={2}
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none font-mono"/>
+                        <textarea
+                          value={form.starter_code_java}
+                          onChange={e => setF('starter_code_java', e.target.value)}
+                          rows={2}
+                          className="w-full bg-navy-950 border border-navy-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"
+                        />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Starter Code (JS)</label>
-                        <textarea value={form.starter_code_js} onChange={e => setF('starter_code_js', e.target.value)} rows={2}
-                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none font-mono"/>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Starter Code (JavaScript)</label>
+                        <textarea
+                          value={form.starter_code_js}
+                          onChange={e => setF('starter_code_js', e.target.value)}
+                          rows={2}
+                          className="w-full bg-navy-950 border border-navy-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"
+                        />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Hints (JSON array)</label>
-                      <textarea value={form.hints} onChange={e => setF('hints', e.target.value)} rows={2}
-                        placeholder='["Think about edge cases","Use a two-pointer approach"]'
-                        className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none font-mono"/>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Hints (JSON array)</label>
+                        <input
+                          value={form.hints}
+                          onChange={e => setF('hints', e.target.value)}
+                          placeholder='["Think about edge cases","Use two pointers"]'
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Coding Question Order (1 - 5)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={form.order}
+                          onChange={e => setF('order', Number(e.target.value))}
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Order (1-5)</label>
-                      <input type="number" min={1} max={5} value={form.order} onChange={e => setF('order', Number(e.target.value))}
-                        className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"/>
-                    </div>
-                  </>
+                  </div>
                 )}
 
-                {error && <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"><AlertCircle className="w-4 h-4 shrink-0"/>{error}</div>}
-                <div className="flex gap-3 pt-1">
-                  <button type="submit" disabled={saving}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 rounded-xl text-sm font-semibold transition disabled:opacity-50">
-                    <Save className="w-4 h-4"/>{saving ? 'Adding...' : 'Add Question'}
+                {error && (
+                  <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                    <AlertCircle className="w-4 h-4 shrink-0"/>{error}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-50 text-white ${
+                      form.type === 'mcq'
+                        ? 'bg-brand-600 hover:bg-brand-500 shadow-brand-500/20 shadow-md'
+                        : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20 shadow-md'
+                    }`}
+                  >
+                    <Save className="w-4 h-4"/>
+                    {saving ? 'Saving...' : editingId ? 'Update Assignment Question' : `Save ${form.type === 'mcq' ? 'MCQ Question' : 'Coding Problem'}`}
                   </button>
-                  <button type="button" onClick={() => setShowForm(false)}
-                    className="px-4 py-2.5 bg-navy-700 hover:bg-navy-600 rounded-xl text-sm transition">
+                  <button
+                    type="button"
+                    onClick={() => { setShowForm(false); setEditingId(null); }}
+                    className="px-4 py-2.5 bg-navy-700 hover:bg-navy-600 rounded-xl text-sm transition"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -1281,72 +1774,226 @@ function AssignmentTab({ topics }: { topics: any[] }) {
             </div>
           )}
 
-          {/* Questions list */}
-          {loadingQ ? <div className="p-8 text-center text-slate-400">Loading...</div> : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* MCQ column */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm">📝 MCQ Questions</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${mcqs.length >= 20 ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                    {mcqs.length}/20
-                  </span>
-                </div>
-                {mcqs.length === 0 && <p className="text-slate-500 text-sm">No MCQ questions yet.</p>}
-                {mcqs.map(q => (
-                  <div key={q.id} className="bg-navy-800 border border-navy-700 rounded-xl p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs text-slate-500">#{q.order}</span>
-                          <Pill text={q.difficulty} color={diffColor[q.difficulty] || 'bg-slate-700 text-slate-300'}/>
-                        </div>
-                        <p className="text-sm font-medium">{q.title}</p>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{q.description}</p>
-                        {q.correct_answer && <p className="text-xs text-green-400 mt-1">✓ {q.correct_answer}</p>}
-                      </div>
-                      <button onClick={() => del(q.id)} disabled={deleting === q.id}
-                        className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition shrink-0 disabled:opacity-40">
-                        <Trash2 className="w-3.5 h-3.5"/>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Filter tabs above questions list */}
+          <div className="flex items-center justify-between border-b border-navy-700 pb-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setActiveFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeFilter === 'all'
+                    ? 'bg-navy-700 text-white border border-navy-600'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Questions ({questions.length})
+              </button>
+              <button
+                onClick={() => setActiveFilter('mcq')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                  activeFilter === 'mcq'
+                    ? 'bg-brand-600/30 text-brand-300 border border-brand-500/50'
+                    : 'text-slate-400 hover:text-brand-300'
+                }`}
+              >
+                <span>📝</span> MCQs ({mcqs.length}/20)
+              </button>
+              <button
+                onClick={() => setActiveFilter('coding')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                  activeFilter === 'coding'
+                    ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50'
+                    : 'text-slate-400 hover:text-cyan-300'
+                }`}
+              >
+                <span>💻</span> Coding ({coding.length}/5)
+              </button>
+            </div>
 
-              {/* Coding column */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm">💻 Coding Questions</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${coding.length >= 5 ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                    {coding.length}/5
-                  </span>
-                </div>
-                {coding.length === 0 && <p className="text-slate-500 text-sm">No coding questions yet.</p>}
-                {coding.map(q => (
-                  <div key={q.id} className="bg-navy-800 border border-navy-700 rounded-xl p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs text-slate-500">#{q.order}</span>
-                          <Pill text={q.difficulty} color={diffColor[q.difficulty] || 'bg-slate-700 text-slate-300'}/>
+            <span className="text-xs text-slate-500">
+              Showing {displayedQuestions.length} {displayedQuestions.length === 1 ? 'question' : 'questions'}
+            </span>
+          </div>
+
+          {/* Questions list display */}
+          {loadingQ ? (
+            <div className="p-8 text-center text-slate-400">Loading assignment questions...</div>
+          ) : displayedQuestions.length === 0 ? (
+            <div className="bg-navy-800/50 border border-dashed border-navy-700 rounded-2xl p-8 text-center space-y-3">
+              <p className="text-slate-400 text-sm">
+                No {activeFilter === 'mcq' ? 'MCQ questions' : activeFilter === 'coding' ? 'coding questions' : 'assignment questions'} found for this topic.
+              </p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={() => openNewQuestion('mcq')}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-xs font-semibold transition"
+                >
+                  + Add First MCQ
+                </button>
+                <button
+                  onClick={() => openNewQuestion('coding')}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-xs font-semibold transition"
+                >
+                  + Add First Coding Problem
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* MCQ Column */}
+              {(activeFilter === 'all' || activeFilter === 'mcq') && (
+                <div className={`space-y-3 ${activeFilter === 'mcq' ? 'md:col-span-2' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-slate-200">📝 MCQ Questions</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${mcqs.length >= 20 ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                        {mcqs.length}/20
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => openNewQuestion('mcq')}
+                      className="text-xs text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5"/> Add MCQ
+                    </button>
+                  </div>
+
+                  {mcqs.length === 0 && <p className="text-slate-500 text-sm italic">No MCQ questions added yet.</p>}
+
+                  {mcqs.map(q => {
+                    let parsedOpts: string[] = [];
+                    try {
+                      parsedOpts = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
+                    } catch {}
+                    return (
+                      <div key={q.id} className="bg-navy-800 border border-navy-700 hover:border-brand-500/40 rounded-xl p-4 transition space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="text-xs bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded font-mono font-bold">
+                                MCQ #{q.order}
+                              </span>
+                              <Pill text={q.difficulty} color={diffColor[q.difficulty] || 'bg-slate-700 text-slate-300'}/>
+                            </div>
+                            <h4 className="text-sm font-semibold text-white">{q.title}</h4>
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{q.description}</p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => startEditQuestion(q)}
+                              title="Edit MCQ"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-brand-500/20 text-slate-400 hover:text-brand-300 transition"
+                            >
+                              <Pencil className="w-3.5 h-3.5"/>
+                            </button>
+                            <button
+                              onClick={() => del(q.id)}
+                              disabled={deleting === q.id}
+                              title="Delete Question"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-40"
+                            >
+                              <Trash2 className="w-3.5 h-3.5"/>
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-sm font-medium">{q.title}</p>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{q.description}</p>
-                        {q.starter_code_python && (
-                          <p className="text-xs text-cyan-400 mt-1 font-mono truncate">
-                            {q.starter_code_python.split('\n')[0]}...
-                          </p>
+
+                        {/* Options preview */}
+                        {Array.isArray(parsedOpts) && parsedOpts.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-xs">
+                            {parsedOpts.map((opt, i) => {
+                              const isCorrect = (q.correct_answer || '').trim().toLowerCase() === opt.trim().toLowerCase();
+                              return (
+                                <div key={i} className={`px-2 py-1 rounded truncate border ${
+                                  isCorrect
+                                    ? 'bg-green-500/15 border-green-500/40 text-green-300 font-semibold'
+                                    : 'bg-navy-900 border-navy-700 text-slate-400'
+                                }`}>
+                                  <span className="font-bold mr-1">{String.fromCharCode(65 + i)}:</span>
+                                  {opt}
+                                  {isCorrect && ' ✓'}
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
-                      <button onClick={() => del(q.id)} disabled={deleting === q.id}
-                        className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition shrink-0 disabled:opacity-40">
-                        <Trash2 className="w-3.5 h-3.5"/>
-                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Coding Column */}
+              {(activeFilter === 'all' || activeFilter === 'coding') && (
+                <div className={`space-y-3 ${activeFilter === 'coding' ? 'md:col-span-2' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-slate-200">💻 Coding Problems</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${coding.length >= 5 ? 'bg-green-500/20 text-green-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                        {coding.length}/5
+                      </span>
                     </div>
+                    <button
+                      onClick={() => openNewQuestion('coding')}
+                      className="text-xs text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5"/> Add Coding
+                    </button>
                   </div>
-                ))}
-              </div>
+
+                  {coding.length === 0 && <p className="text-slate-500 text-sm italic">No coding problems added yet.</p>}
+
+                  {coding.map(q => {
+                    let tcCount = 0;
+                    try {
+                      const tc = typeof q.test_cases === 'string' ? JSON.parse(q.test_cases) : q.test_cases;
+                      if (Array.isArray(tc)) tcCount = tc.length;
+                    } catch {}
+                    return (
+                      <div key={q.id} className="bg-navy-800 border border-navy-700 hover:border-cyan-500/40 rounded-xl p-4 transition space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="text-xs bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono font-bold">
+                                Code #{q.order}
+                              </span>
+                              <Pill text={q.difficulty} color={diffColor[q.difficulty] || 'bg-slate-700 text-slate-300'}/>
+                              <span className="text-xs text-slate-500">
+                                {tcCount} test {tcCount === 1 ? 'case' : 'cases'}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-semibold text-white">{q.title}</h4>
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{q.description}</p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => startEditQuestion(q)}
+                              title="Edit Coding Problem"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition"
+                            >
+                              <Pencil className="w-3.5 h-3.5"/>
+                            </button>
+                            <button
+                              onClick={() => del(q.id)}
+                              disabled={deleting === q.id}
+                              title="Delete Question"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-40"
+                            >
+                              <Trash2 className="w-3.5 h-3.5"/>
+                            </button>
+                          </div>
+                        </div>
+
+                        {q.starter_code_python && (
+                          <div className="bg-navy-950 px-3 py-1.5 rounded-md border border-navy-700/60">
+                            <p className="text-xs text-cyan-300 font-mono truncate">
+                              {q.starter_code_python.split('\n')[0]}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </>
