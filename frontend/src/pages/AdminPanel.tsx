@@ -377,7 +377,7 @@ function OverviewTab() {
 }
 
 // ── Learning Paths Tab ─────────────────────────────────────────────────────
-function PathsTab() {
+function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
   const [paths, setPaths] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -396,18 +396,52 @@ function PathsTab() {
 
   const createPath = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { await api.adminCreatePath(pathForm); setShowPathForm(false); setMsg('Path created!'); load(); } catch (err: any) { setMsg(err.message); }
+    if (!pathForm.title || !pathForm.title.trim()) {
+      setMsg('Please enter a learning path title.');
+      return;
+    }
+    let finalKey = (pathForm.path_key || '').trim();
+    if (!finalKey) {
+      finalKey = pathForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `path-${Date.now()}`;
+    }
+    try {
+      await api.adminCreatePath({ ...pathForm, path_key: finalKey });
+      setShowPathForm(false);
+      setPathForm({ path_key: '', title: '', tagline: '', description: '', icon: 'book', color: 'blue', order: paths.length + 1 });
+      setMsg('Learning path created successfully!');
+      load();
+      onPathsUpdated?.();
+    } catch (err: any) { setMsg(err.message || 'Failed to create path'); }
   };
 
   const createTopic = async (e: React.FormEvent, path_key: string) => {
     e.preventDefault();
-    try { await api.adminCreateTopic({ ...topicForm, path_key }); setShowTopicForm(null); setMsg('Topic created!'); load(); } catch (err: any) { setMsg(err.message); }
+    if (!topicForm.title || !topicForm.title.trim()) {
+      setMsg('Please enter a topic title.');
+      return;
+    }
+    let finalKey = (topicForm.topic_key || '').trim();
+    if (!finalKey) {
+      finalKey = topicForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `topic-${Date.now()}`;
+    }
+    try {
+      await api.adminCreateTopic({ ...topicForm, topic_key: finalKey, path_key });
+      setShowTopicForm(null);
+      setTopicForm({ topic_key: '', title: '', category: 'Core', difficulty: 'Medium', order: 10, estimated_minutes: 60, description: '' });
+      setMsg('Topic created successfully!');
+      load();
+      onPathsUpdated?.();
+    } catch (err: any) { setMsg(err.message || 'Failed to create topic'); }
   };
 
   const deleteTopic = async (id: number) => {
     if (!confirm('Delete this topic and all its questions?')) return;
     setDeleting(id);
-    try { await api.adminDeleteTopic(id); load(); } catch {}
+    try {
+      await api.adminDeleteTopic(id);
+      load();
+      onPathsUpdated?.();
+    } catch {}
     setDeleting(null);
   };
 
@@ -1306,7 +1340,7 @@ export const AdminPanel = () => {
         {tab === 'overview' && <OverviewTab />}
 
         {/* Paths */}
-        {tab === 'paths' && <PathsTab />}
+        {tab === 'paths' && <PathsTab onPathsUpdated={loadTopics} />}
 
         {/* Assignments */}
         {tab === 'assignments' && <AssignmentTab topics={topics} />}

@@ -119,6 +119,20 @@ This document details all the issues identified across the codebase and the exac
 
 ---
 
+### 9. Learning Path and Topic Creation Not Persisting
+- **Location:** `frontend/src/services/api.ts`, `frontend/src/pages/AdminPanel.tsx`, `backend/app/main.py`
+- **Root Cause:**
+  - In demo / offline mode (including Vercel deployment), `POST /admin/paths` and `POST /admin/topics` returned static `mockPaths` without saving the new learning path or topic, causing them to disappear on reload.
+  - Student views `/paths` and `/topics/:topic_key` only returned hardcoded mock paths rather than dynamic stored paths.
+  - Blank `path_key` or `topic_key` inputs in forms caused duplicate empty key integrity errors on the backend.
+- **Fix:**
+  - Implemented full `localStorage` persistence layer (`learnlens_stored_paths`) in `frontend/src/services/api.ts` supporting full offline CRUD for learning paths, topics, and resource links.
+  - Linked student `/paths` and `/topics/:topic_key` endpoints to `getStoredPaths()`, allowing immediate access to new paths and topics across the entire app.
+  - Added smart auto-generation of clean kebab-case `path_key` and `topic_key` from titles on both frontend and backend.
+  - Connected `onPathsUpdated` callback in `AdminPanel.tsx` so adding a new topic immediately updates topic selector dropdowns across Questions and Assignments tabs without a manual reload.
+
+---
+
 ## 🚀 How to Run the Project
 
 ### Start the Backend

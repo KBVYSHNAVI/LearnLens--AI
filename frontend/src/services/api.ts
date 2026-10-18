@@ -80,6 +80,40 @@ function saveStoredAssignmentQuestions(qs: any[]) {
   } catch {}
 }
 
+const STORAGE_PATHS_KEY = 'learnlens_stored_paths';
+
+function getStoredPaths(): any[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_PATHS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p: any) => ({
+          ...p,
+          topic_count: p.topics?.length || 0,
+          resource_links: typeof p.resource_links === 'string' ? p.resource_links : JSON.stringify(p.resource_links || [])
+        }));
+      }
+    }
+  } catch {}
+  try {
+    const initial = mockPaths.map(p => ({
+      ...p,
+      topic_count: p.topics?.length || 0,
+      resource_links: typeof (p as any).resource_links === 'string' ? (p as any).resource_links : JSON.stringify((p as any).resource_links || [])
+    }));
+    localStorage.setItem(STORAGE_PATHS_KEY, JSON.stringify(initial));
+    return initial;
+  } catch {}
+  return [...mockPaths];
+}
+
+function saveStoredPaths(paths: any[]) {
+  try {
+    localStorage.setItem(STORAGE_PATHS_KEY, JSON.stringify(paths));
+  } catch {}
+}
+
 function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any {
   console.info(`[LearnLens Demo Mode] Falling back to offline data for: ${endpoint}`);
 
@@ -162,7 +196,7 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
   }
 
   if (endpoint.startsWith('/paths')) {
-    return mockPaths;
+    return getStoredPaths();
   }
 
   if (endpoint.startsWith('/topics/')) {
@@ -172,7 +206,10 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
       const qs = getStoredQuestions();
       return tid ? qs.filter(q => q.topic_id === tid) : qs;
     }
-    return mockTopicDetail;
+    const topicKey = endpoint.split('/')[2];
+    const allTopics = getStoredPaths().flatMap((p: any) => p.topics || []);
+    const found = allTopics.find((t: any) => t.topic_key === topicKey || String(t.id) === topicKey);
+    return found ? { ...mockTopicDetail, ...found } : mockTopicDetail;
   }
 
   if (endpoint.startsWith('/questions/')) {
@@ -307,6 +344,8 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
   if (endpoint.startsWith('/admin/analytics')) {
     const totalQs = getStoredQuestions().length;
     const totalAQs = getStoredAssignmentQuestions().length;
+    const paths = getStoredPaths();
+    const allTopics = paths.flatMap((p: any) => p.topics || []);
     return {
       totals: {
         users: 24,
@@ -314,8 +353,8 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
         submissions: 85,
         quizzes: 32,
         pass_rate: 88.5,
-        learning_paths: mockPaths.length,
-        topics: mockPaths.flatMap(p => p.topics).length
+        learning_paths: paths.length,
+        topics: allTopics.length
       },
       top_users: [
         { name: 'Aditya Rao', email: 'aditya@example.com', points: 340, streak: 12 },
@@ -334,8 +373,62 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
     };
   }
 
+  // ── Admin Topics CRUD ──
   if (endpoint.startsWith('/admin/topics')) {
-    return mockPaths.flatMap(p => p.topics);
+    const method = (options.method || 'GET').toUpperCase();
+    let paths = getStoredPaths();
+
+    if (method === 'POST') {
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      const targetPathKey = body.path_key || paths[0]?.path_key;
+      const targetPath = paths.find(p => p.path_key === targetPathKey) || paths[0];
+      const title = (body.title || 'Untitled Topic').trim();
+      let key = (body.topic_key || '').trim();
+      if (!key) {
+        key = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `topic-${Date.now()}`;
+      }
+      const id = Date.now();
+      const newTopic = {
+        id,
+        path_key: targetPath ? targetPath.path_key : (body.path_key || 'dsa'),
+        topic_key: key,
+        title,
+        category: body.category || 'Core',
+        difficulty: body.difficulty || 'Medium',
+        order: Number(body.order) || ((targetPath?.topics?.length || 0) + 1),
+        estimated_minutes: Number(body.estimated_minutes) || 60,
+        verified_question_count: 0,
+        target_question_count: 20,
+        icon: body.icon || 'book',
+        description: body.description || '',
+        status: 'not_started',
+        score: 0
+      };
+      if (targetPath) {
+        if (!targetPath.topics) targetPath.topics = [];
+        targetPath.topics.push(newTopic);
+        targetPath.topic_count = targetPath.topics.length;
+      }
+      saveStoredPaths(paths);
+      return newTopic;
+    }
+
+    if (method === 'DELETE') {
+      const tid = Number(endpoint.split('/').pop());
+      paths = paths.map(p => {
+        const filteredTopics = (p.topics || []).filter((t: any) => t.id !== tid);
+        return {
+          ...p,
+          topics: filteredTopics,
+          topic_count: filteredTopics.length
+        };
+      });
+      saveStoredPaths(paths);
+      return { detail: 'deleted' };
+    }
+
+    return paths.flatMap((p: any) => p.topics || []);
   }
 
   // ── Admin Questions CRUD ──
@@ -400,8 +493,55 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
     return qs;
   }
 
+  // ── Admin Paths CRUD ──
   if (endpoint.startsWith('/admin/paths')) {
-    return mockPaths;
+    const method = (options.method || 'GET').toUpperCase();
+    let paths = getStoredPaths();
+
+    if (method === 'POST') {
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      const id = Date.now();
+      const title = (body.title || 'Untitled Learning Path').trim();
+      let key = (body.path_key || '').trim();
+      if (!key) {
+        key = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `path-${Date.now()}`;
+      }
+      const newPath = {
+        id,
+        path_key: key,
+        title,
+        tagline: body.tagline || '',
+        description: body.description || '',
+        icon: body.icon || 'book',
+        color: body.color || 'blue',
+        order: Number(body.order) || (paths.length + 1),
+        resource_links: typeof body.resource_links === 'string' ? body.resource_links : JSON.stringify(body.resource_links || []),
+        topic_count: 0,
+        topics: []
+      };
+      paths.push(newPath);
+      saveStoredPaths(paths);
+      return newPath;
+    }
+
+    if (method === 'PUT' && endpoint.includes('/resources')) {
+      const parts = endpoint.split('/');
+      const pid = Number(parts[3]);
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      paths = paths.map(p => {
+        if (p.id === pid) {
+          return { ...p, resource_links: JSON.stringify(body.resource_links || []) };
+        }
+        return p;
+      });
+      saveStoredPaths(paths);
+      const target = paths.find(p => p.id === pid);
+      return { detail: 'updated', resource_links: target?.resource_links || '[]' };
+    }
+
+    return paths;
   }
 
   if (endpoint.startsWith('/admin/users')) {
@@ -414,7 +554,7 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
   // ── Admin Assignments CRUD & Stats ──
   if (endpoint.startsWith('/admin/assignments/stats/overview')) {
     const allAQs = getStoredAssignmentQuestions();
-    const allTopics = mockPaths.flatMap(p => p.topics);
+    const allTopics = getStoredPaths().flatMap((p: any) => p.topics || []);
     return allTopics.map(t => {
       const mcq = allAQs.filter(q => q.topic_id === t.id && q.type === 'mcq').length;
       const coding = allAQs.filter(q => q.topic_id === t.id && q.type === 'coding').length;

@@ -576,8 +576,16 @@ def admin_update_path_resources(pid: int, data: dict, db: Session = Depends(get_
 @app.post("/api/admin/paths")
 def admin_create_path(data: dict, db: Session = Depends(get_db),
                       _: models.User = Depends(get_current_admin)):
+    import time, re
+    title = (data.get("title") or "Untitled Learning Path").strip()
+    path_key = (data.get("path_key") or "").strip()
+    if not path_key:
+        path_key = re.sub(r'[^a-zA-Z0-9]+', '-', title.lower()).strip('-')[:40] or "path"
+    if db.query(models.LearningPath).filter_by(path_key=path_key).first():
+        path_key = f"{path_key}-{int(time.time()*1000)}"
+
     p = models.LearningPath(
-        path_key=data["path_key"], title=data["title"],
+        path_key=path_key, title=title,
         tagline=data.get("tagline", ""), description=data.get("description", ""),
         icon=data.get("icon", "book"), color=data.get("color", "blue"),
         order=data.get("order", 99),
@@ -592,9 +600,21 @@ def admin_create_path(data: dict, db: Session = Depends(get_db),
 @app.post("/api/admin/topics")
 def admin_create_topic(data: dict, db: Session = Depends(get_db),
                        _: models.User = Depends(get_current_admin)):
+    import time, re
+    title = (data.get("title") or "Untitled Topic").strip()
+    path_key = (data.get("path_key") or "").strip()
+    if not path_key:
+        first_path = db.query(models.LearningPath).first()
+        path_key = first_path.path_key if first_path else "dsa"
+    topic_key = (data.get("topic_key") or "").strip()
+    if not topic_key:
+        topic_key = re.sub(r'[^a-zA-Z0-9]+', '-', title.lower()).strip('-')[:50] or "topic"
+    if db.query(models.Topic).filter_by(topic_key=topic_key).first():
+        topic_key = f"{topic_key}-{int(time.time()*1000)}"
+
     t = models.Topic(
-        path_key=data["path_key"], topic_key=data["topic_key"],
-        title=data["title"], category=data.get("category", "Core"),
+        path_key=path_key, topic_key=topic_key,
+        title=title, category=data.get("category", "Core"),
         difficulty=data.get("difficulty", "Medium"),
         order=data.get("order", 99),
         estimated_minutes=data.get("estimated_minutes", 60),
