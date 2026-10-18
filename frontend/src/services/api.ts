@@ -414,6 +414,25 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
       return newTopic;
     }
 
+    if (method === 'PUT') {
+      const tid = Number(endpoint.split('/').pop());
+      let body: any = {};
+      try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      let updatedTopic: any = null;
+      paths = paths.map(p => {
+        const updatedTopics = (p.topics || []).map((t: any) => {
+          if (t.id === tid) {
+            updatedTopic = { ...t, ...body };
+            return updatedTopic;
+          }
+          return t;
+        });
+        return { ...p, topics: updatedTopics };
+      });
+      saveStoredPaths(paths);
+      return updatedTopic || body;
+    }
+
     if (method === 'DELETE') {
       const tid = Number(endpoint.split('/').pop());
       paths = paths.map(p => {
@@ -525,20 +544,42 @@ function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any
       return newPath;
     }
 
-    if (method === 'PUT' && endpoint.includes('/resources')) {
+    if (method === 'PUT') {
       const parts = endpoint.split('/');
-      const pid = Number(parts[3]);
+      const pid = Number(parts[parts.length - 1]);
       let body: any = {};
       try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+      if (endpoint.includes('/resources')) {
+        const resPid = Number(parts[3]);
+        paths = paths.map(p => {
+          if (p.id === resPid) {
+            return { ...p, resource_links: JSON.stringify(body.resource_links || []) };
+          }
+          return p;
+        });
+        saveStoredPaths(paths);
+        const target = paths.find(p => p.id === resPid);
+        return { detail: 'updated', resource_links: target?.resource_links || '[]' };
+      }
       paths = paths.map(p => {
         if (p.id === pid) {
-          return { ...p, resource_links: JSON.stringify(body.resource_links || []) };
+          return {
+            ...p,
+            ...body,
+            topic_count: p.topics?.length || 0
+          };
         }
         return p;
       });
       saveStoredPaths(paths);
-      const target = paths.find(p => p.id === pid);
-      return { detail: 'updated', resource_links: target?.resource_links || '[]' };
+      return paths.find(p => p.id === pid) || body;
+    }
+
+    if (method === 'DELETE') {
+      const pid = Number(endpoint.split('/').pop());
+      paths = paths.filter(p => p.id !== pid);
+      saveStoredPaths(paths);
+      return { detail: 'deleted' };
     }
 
     return paths;
@@ -628,6 +669,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
     if (!response.ok) {
+      if (response.status === 404 || response.status === 405 || response.status === 502 || response.status === 503) {
+        const fallback = handleOfflineFallback(endpoint, options);
+        if (fallback !== undefined) {
+          return fallback as T;
+        }
+      }
       let msg = 'Error';
       try {
         const d = await response.json();
@@ -639,12 +686,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     }
     return response.json();
   } catch (err: any) {
-    // If backend is unreachable (Failed to fetch, Mixed Content, Network Error, etc.)
+    // If backend is unreachable or returns 404/network error in demo/Vercel mode
     if (
       err.name === 'TypeError' ||
       err.message?.includes('Failed to fetch') ||
       err.message?.includes('NetworkError') ||
-      err.message?.includes('Load failed')
+      err.message?.includes('Load failed') ||
+      err.message?.includes('Status 404') ||
+      err.message?.includes('Status 405') ||
+      err.message?.includes('Status 502') ||
+      err.message?.includes('Status 503')
     ) {
       const fallback = handleOfflineFallback(endpoint, options);
       if (fallback !== undefined) {
@@ -727,10 +778,16 @@ export const api = {
   adminGetPaths: () => request<any[]>('/admin/paths'),
   adminCreatePath: (data: any) =>
     request<any>('/admin/paths', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdatePath: (id: number, data: any) =>
+    request<any>(`/admin/paths/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  adminDeletePath: (id: number) =>
+    request<any>(`/admin/paths/${id}`, { method: 'DELETE' }),
   adminUpdatePathResources: (id: number, resource_links: any[]) =>
     request<any>(`/admin/paths/${id}/resources`, { method: 'PUT', body: JSON.stringify({ resource_links }) }),
   adminCreateTopic: (data: any) =>
     request<any>('/admin/topics', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateTopic: (id: number, data: any) =>
+    request<any>(`/admin/topics/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   adminDeleteTopic: (id: number) =>
     request<any>(`/admin/topics/${id}`, { method: 'DELETE' }),
 

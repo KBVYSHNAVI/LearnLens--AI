@@ -382,22 +382,38 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showPathForm, setShowPathForm] = useState(false);
+  const [editPath, setEditPath] = useState<any | null>(null);
   const [showTopicForm, setShowTopicForm] = useState<string | null>(null);
+  const [editTopic, setEditTopic] = useState<any | null>(null);
   const [showResourceForm, setShowResourceForm] = useState<number | null>(null); // path id
   const [pathForm, setPathForm] = useState({ path_key: '', title: '', tagline: '', description: '', icon: 'book', color: 'blue', order: 10 });
   const [topicForm, setTopicForm] = useState({ topic_key: '', title: '', category: 'Core', difficulty: 'Medium', order: 10, estimated_minutes: 60, description: '' });
   const [resourceLinks, setResourceLinks] = useState<{ label: string; url: string }[]>([]);
-  const [msg, setMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleting, setDeleting] = useState<number | null>(null);
   const [savingRes, setSavingRes] = useState(false);
 
-  const load = () => { setLoading(true); api.adminGetPaths().then(setPaths).catch(() => {}).finally(() => setLoading(false)); };
+  const load = () => {
+    setLoading(true);
+    api.adminGetPaths().then(setPaths).catch(() => {}).finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, []);
+
+  const notify = (msg: string, isErr = false) => {
+    if (isErr) {
+      setErrorMsg(msg);
+      setTimeout(() => setErrorMsg(''), 5000);
+    } else {
+      setSuccessMsg(msg);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  };
 
   const createPath = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pathForm.title || !pathForm.title.trim()) {
-      setMsg('Please enter a learning path title.');
+      notify('Please enter a learning path title.', true);
       return;
     }
     let finalKey = (pathForm.path_key || '').trim();
@@ -405,19 +421,51 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
       finalKey = pathForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `path-${Date.now()}`;
     }
     try {
-      await api.adminCreatePath({ ...pathForm, path_key: finalKey });
+      const created = await api.adminCreatePath({ ...pathForm, path_key: finalKey });
       setShowPathForm(false);
-      setPathForm({ path_key: '', title: '', tagline: '', description: '', icon: 'book', color: 'blue', order: paths.length + 1 });
-      setMsg('Learning path created successfully!');
+      setPathForm({ path_key: '', title: '', tagline: '', description: '', icon: 'book', color: 'blue', order: paths.length + 2 });
+      notify('Learning path created successfully!');
+      load();
+      if (created?.id) setExpanded(created.id);
+      onPathsUpdated?.();
+    } catch (err: any) {
+      notify(err.message || 'Failed to create learning path', true);
+    }
+  };
+
+  const saveEditPath = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPath?.title || !editPath.title.trim()) {
+      notify('Please enter a learning path title.', true);
+      return;
+    }
+    try {
+      await api.adminUpdatePath(editPath.id, editPath);
+      setEditPath(null);
+      notify('Learning path updated successfully!');
       load();
       onPathsUpdated?.();
-    } catch (err: any) { setMsg(err.message || 'Failed to create path'); }
+    } catch (err: any) {
+      notify(err.message || 'Failed to update learning path', true);
+    }
+  };
+
+  const deletePath = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this learning path and all its topics?')) return;
+    try {
+      await api.adminDeletePath(id);
+      notify('Learning path deleted successfully!');
+      load();
+      onPathsUpdated?.();
+    } catch (err: any) {
+      notify(err.message || 'Failed to delete learning path', true);
+    }
   };
 
   const createTopic = async (e: React.FormEvent, path_key: string) => {
     e.preventDefault();
     if (!topicForm.title || !topicForm.title.trim()) {
-      setMsg('Please enter a topic title.');
+      notify('Please enter a topic title.', true);
       return;
     }
     let finalKey = (topicForm.topic_key || '').trim();
@@ -428,10 +476,29 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
       await api.adminCreateTopic({ ...topicForm, topic_key: finalKey, path_key });
       setShowTopicForm(null);
       setTopicForm({ topic_key: '', title: '', category: 'Core', difficulty: 'Medium', order: 10, estimated_minutes: 60, description: '' });
-      setMsg('Topic created successfully!');
+      notify('Topic created successfully!');
       load();
       onPathsUpdated?.();
-    } catch (err: any) { setMsg(err.message || 'Failed to create topic'); }
+    } catch (err: any) {
+      notify(err.message || 'Failed to create topic', true);
+    }
+  };
+
+  const saveEditTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTopic?.title || !editTopic.title.trim()) {
+      notify('Please enter a topic title.', true);
+      return;
+    }
+    try {
+      await api.adminUpdateTopic(editTopic.id, editTopic);
+      setEditTopic(null);
+      notify('Topic updated successfully!');
+      load();
+      onPathsUpdated?.();
+    } catch (err: any) {
+      notify(err.message || 'Failed to update topic', true);
+    }
   };
 
   const deleteTopic = async (id: number) => {
@@ -439,9 +506,12 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
     setDeleting(id);
     try {
       await api.adminDeleteTopic(id);
+      notify('Topic deleted successfully!');
       load();
       onPathsUpdated?.();
-    } catch {}
+    } catch (err: any) {
+      notify(err.message || 'Failed to delete topic', true);
+    }
     setDeleting(null);
   };
 
@@ -454,8 +524,12 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
     setSavingRes(true);
     try {
       await api.adminUpdatePathResources(pathId, resourceLinks);
-      setMsg('Resources saved!'); setShowResourceForm(null); load();
-    } catch (err: any) { setMsg(err.message); }
+      notify('Resource links saved successfully!');
+      setShowResourceForm(null);
+      load();
+    } catch (err: any) {
+      notify(err.message || 'Failed to save resources', true);
+    }
     setSavingRes(false);
   };
 
@@ -467,76 +541,188 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-lg">Learning Paths & Topics</h2>
-        <button onClick={() => setShowPathForm(true)}
+        <div>
+          <h2 className="font-bold text-lg">Learning Paths & Topics</h2>
+          <p className="text-slate-400 text-xs mt-0.5">Organize curricula, add placement roadmaps, and manage topic content.</p>
+        </div>
+        <button onClick={() => { setShowPathForm(true); setEditPath(null); }}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm font-semibold transition">
           <Plus className="w-4 h-4"/>Add Learning Path
         </button>
       </div>
 
-      {msg && (
-        <div className="flex items-center gap-2 text-green-400 text-sm bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
-          <CheckCircle2 className="w-4 h-4"/>{msg}
+      {successMsg && (
+        <div className="flex items-center gap-2 text-green-400 text-sm bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-2.5">
+          <CheckCircle2 className="w-4 h-4 shrink-0"/>{successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5">
+          <AlertCircle className="w-4 h-4 shrink-0"/>{errorMsg}
         </div>
       )}
 
       {/* New path form */}
       {showPathForm && (
-        <div className="bg-navy-800 border border-navy-700 rounded-xl p-5">
-          <h3 className="font-semibold mb-4">New Learning Path</h3>
+        <div className="bg-navy-800 border border-navy-700 rounded-xl p-5 space-y-4">
+          <h3 className="font-semibold text-base">New Learning Path</h3>
           <form onSubmit={createPath} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              {[['path_key','Path Key','dsa-foundations'],['title','Title','DSA Foundations'],['tagline','Tagline','Master the basics'],['icon','Icon','book'],['color','Color','blue']].map(([k,l,p]) => (
-                <div key={k}>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">{l}</label>
-                  <input value={(pathForm as any)[k]} placeholder={p} onChange={e => setPathForm(f => ({...f, [k]: e.target.value}))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Title *</label>
+                <input value={pathForm.title} placeholder="e.g. System Design Mastery" onChange={e => setPathForm(f => ({ ...f, title: e.target.value }))} required
+                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Path Key (optional, auto-generated)</label>
+                <input value={pathForm.path_key} placeholder="e.g. system-design" onChange={e => setPathForm(f => ({ ...f, path_key: e.target.value }))}
+                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Tagline</label>
+                <input value={pathForm.tagline} placeholder="e.g. High-level architecture & scaling" onChange={e => setPathForm(f => ({ ...f, tagline: e.target.value }))}
+                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Color</label>
+                  <select value={pathForm.color} onChange={e => setPathForm(f => ({ ...f, color: e.target.value }))}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand-500">
+                    {['blue', 'emerald', 'purple', 'amber', 'cyan', 'rose'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Icon</label>
+                  <select value={pathForm.icon} onChange={e => setPathForm(f => ({ ...f, icon: e.target.value }))}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand-500">
+                    {['book', 'code', 'server', 'layers', 'cpu', 'compass'].map(ic => <option key={ic} value={ic}>{ic}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Order</label>
+                  <input type="number" value={pathForm.order} onChange={e => setPathForm(f => ({ ...f, order: Number(e.target.value) }))}
                     className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
                 </div>
-              ))}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Order</label>
-                <input type="number" value={pathForm.order} onChange={e => setPathForm(f => ({...f, order: Number(e.target.value)}))}
-                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
               </div>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1">Description</label>
               <textarea value={pathForm.description} rows={2} placeholder="What will learners gain from this path?"
-                onChange={e => setPathForm(f => ({...f, description: e.target.value}))}
+                onChange={e => setPathForm(f => ({ ...f, description: e.target.value }))}
                 className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none" />
             </div>
             <div className="flex gap-3">
-              <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm font-semibold"><Save className="w-4 h-4"/>Create</button>
-              <button type="button" onClick={() => setShowPathForm(false)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm"><X className="w-4 h-4"/></button>
+              <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm font-semibold transition"><Save className="w-4 h-4"/>Create Learning Path</button>
+              <button type="button" onClick={() => setShowPathForm(false)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm transition"><X className="w-4 h-4"/>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Edit path form */}
+      {editPath && (
+        <div className="bg-navy-800 border border-cyan-500/40 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-base text-cyan-400">Edit Learning Path: {editPath.title}</h3>
+            <button onClick={() => setEditPath(null)} className="text-slate-400 hover:text-white"><X className="w-4 h-4"/></button>
+          </div>
+          <form onSubmit={saveEditPath} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Title *</label>
+                <input value={editPath.title} onChange={e => setEditPath((f: any) => ({ ...f, title: e.target.value }))} required
+                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Tagline</label>
+                <input value={editPath.tagline} onChange={e => setEditPath((f: any) => ({ ...f, tagline: e.target.value }))}
+                  className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Color</label>
+                  <select value={editPath.color} onChange={e => setEditPath((f: any) => ({ ...f, color: e.target.value }))}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand-500">
+                    {['blue', 'emerald', 'purple', 'amber', 'cyan', 'rose'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Icon</label>
+                  <select value={editPath.icon} onChange={e => setEditPath((f: any) => ({ ...f, icon: e.target.value }))}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand-500">
+                    {['book', 'code', 'server', 'layers', 'cpu', 'compass'].map(ic => <option key={ic} value={ic}>{ic}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Order</label>
+                  <input type="number" value={editPath.order} onChange={e => setEditPath((f: any) => ({ ...f, order: Number(e.target.value) }))}
+                    className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">Description</label>
+              <textarea value={editPath.description} rows={2}
+                onChange={e => setEditPath((f: any) => ({ ...f, description: e.target.value }))}
+                className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none" />
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-semibold transition"><Save className="w-4 h-4"/>Save Changes</button>
+              <button type="button" onClick={() => setEditPath(null)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm transition"><X className="w-4 h-4"/>Cancel</button>
             </div>
           </form>
         </div>
       )}
 
       {/* Paths list */}
-      {loading ? <div className="p-8 text-center text-slate-400">Loading...</div> :
+      {loading ? <div className="p-8 text-center text-slate-400">Loading learning paths...</div> :
         paths.map(path => (
-          <div key={path.id} className="bg-navy-800 border border-navy-700 rounded-xl overflow-hidden">
+          <div key={path.id} className="bg-navy-800 border border-navy-700 rounded-xl overflow-hidden transition">
             {/* Path header */}
-            <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-navy-750/30 transition"
-              onClick={() => setExpanded(expanded === path.id ? null : path.id)}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-brand-600/20 flex items-center justify-center text-brand-400 font-bold text-sm">
+            <div className="w-full flex items-center justify-between px-5 py-4 hover:bg-navy-750/30 transition">
+              <button className="flex items-center gap-3 text-left flex-1"
+                onClick={() => setExpanded(expanded === path.id ? null : path.id)}>
+                <div className="w-8 h-8 rounded-lg bg-brand-600/20 flex items-center justify-center text-brand-400 font-bold text-sm shrink-0">
                   {path.order}
                 </div>
-                <div className="text-left">
-                  <div className="font-semibold">{path.title}</div>
-                  <div className="text-xs text-slate-400">{path.tagline} · {path.topic_count} topics</div>
+                <div>
+                  <div className="font-semibold text-base">{path.title}</div>
+                  <div className="text-xs text-slate-400">{path.tagline} · {path.topics?.length || 0} topics</div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
+              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
                 {/* Resource links badge */}
-                {(() => { try { const links = JSON.parse(path.resource_links || '[]'); return links.length > 0 ? (
-                  <span className="text-xs bg-cyan-600/20 text-cyan-400 border border-cyan-600/30 px-2 py-0.5 rounded-full">{links.length} resources</span>
-                ) : null; } catch { return null; } })()}
-                {expanded === path.id ? <ChevronUp className="w-4 h-4 text-slate-500"/> : <ChevronDown className="w-4 h-4 text-slate-500"/>}
+                {(() => {
+                  try {
+                    const links = JSON.parse(path.resource_links || '[]');
+                    return links.length > 0 ? (
+                      <span className="text-xs bg-cyan-600/20 text-cyan-400 border border-cyan-600/30 px-2.5 py-0.5 rounded-full hidden sm:inline">
+                        {links.length} resources
+                      </span>
+                    ) : null;
+                  } catch { return null; }
+                })()}
+
+                {/* Edit path button */}
+                <button onClick={() => setEditPath({ ...path })} title="Edit learning path"
+                  className="p-1.5 rounded-lg bg-navy-700 hover:bg-cyan-600/20 text-slate-400 hover:text-cyan-400 transition">
+                  <Pencil className="w-3.5 h-3.5"/>
+                </button>
+
+                {/* Delete path button */}
+                <button onClick={() => deletePath(path.id)} title="Delete learning path"
+                  className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition">
+                  <Trash2 className="w-3.5 h-3.5"/>
+                </button>
+
+                {/* Toggle chevron */}
+                <button onClick={() => setExpanded(expanded === path.id ? null : path.id)} className="p-1 text-slate-500 hover:text-white">
+                  {expanded === path.id ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                </button>
               </div>
-            </button>
+            </div>
 
             {expanded === path.id && (
               <div className="border-t border-navy-700 p-5 space-y-4">
@@ -606,36 +792,88 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
                   )}
                 </div>
 
+                {/* Edit topic form inline */}
+                {editTopic && (
+                  <form onSubmit={saveEditTopic} className="space-y-3 bg-navy-900 border border-cyan-500/40 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-sm text-cyan-400">Edit Topic: {editTopic.title}</h4>
+                      <button type="button" onClick={() => setEditTopic(null)} className="text-slate-400 hover:text-white"><X className="w-4 h-4"/></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Title *</label>
+                        <input value={editTopic.title} onChange={e => setEditTopic((f: any) => ({ ...f, title: e.target.value }))} required
+                          className="w-full bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Category</label>
+                        <input value={editTopic.category} onChange={e => setEditTopic((f: any) => ({ ...f, category: e.target.value }))}
+                          className="w-full bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Difficulty</label>
+                        <select value={editTopic.difficulty} onChange={e => setEditTopic((f: any) => ({ ...f, difficulty: e.target.value }))}
+                          className="w-full bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+                          {['Easy', 'Medium', 'Hard'].map(d => <option key={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Order</label>
+                        <input type="number" value={editTopic.order} onChange={e => setEditTopic((f: any) => ({ ...f, order: Number(e.target.value) }))}
+                          className="w-full bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">Description</label>
+                      <textarea value={editTopic.description || ''} rows={2}
+                        onChange={e => setEditTopic((f: any) => ({ ...f, description: e.target.value }))}
+                        className="w-full bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none" />
+                    </div>
+                    <div className="flex gap-3">
+                      <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-semibold transition"><Save className="w-4 h-4"/>Update Topic</button>
+                      <button type="button" onClick={() => setEditTopic(null)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm transition"><X className="w-4 h-4"/>Cancel</button>
+                    </div>
+                  </form>
+                )}
+
                 {/* Topics list */}
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Topics</div>
-                  {path.topics.map((t: any) => (
-                    <div key={t.id} className="bg-navy-900/50 rounded-lg border border-navy-700/50">
-                      <div className="flex items-center justify-between px-4 py-2.5">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-500 w-5 shrink-0">{t.order}</span>
-                          <div>
-                            <div className="text-sm font-medium">{t.title}</div>
-                            <div className="text-xs text-slate-500">{t.topic_key} · {t.verified_question_count} questions</div>
+                  {(path.topics || []).length === 0 ? (
+                    <p className="text-slate-500 text-xs italic py-2">No topics in this path yet. Click "Add topic to this path" below.</p>
+                  ) : (
+                    (path.topics || []).map((t: any) => (
+                      <div key={t.id} className="bg-navy-900/50 rounded-lg border border-navy-700/50">
+                        <div className="flex items-center justify-between px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-slate-500 w-5 shrink-0">{t.order}</span>
+                            <div>
+                              <div className="text-sm font-medium">{t.title}</div>
+                              <div className="text-xs text-slate-500">{t.topic_key} · {t.verified_question_count || 0} questions</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Pill text={t.difficulty} color={diffColor[t.difficulty] || 'bg-slate-700 text-slate-300'} />
+                            <button onClick={() => setEditTopic({ ...t })} title="Edit topic"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-cyan-600/20 text-slate-400 hover:text-cyan-400 transition">
+                              <Pencil className="w-3.5 h-3.5"/>
+                            </button>
+                            <button onClick={() => deleteTopic(t.id)} disabled={deleting === t.id} title="Delete topic"
+                              className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-40">
+                              <Trash2 className="w-3.5 h-3.5"/>
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Pill text={t.difficulty} color={diffColor[t.difficulty] || 'bg-slate-700 text-slate-300'} />
-                          <button onClick={() => deleteTopic(t.id)} disabled={deleting === t.id}
-                            className="p-1.5 rounded-lg bg-navy-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-40">
-                            <Trash2 className="w-3.5 h-3.5"/>
-                          </button>
-                        </div>
+                        {t.description && (
+                          <div className="px-4 pb-2.5 pt-0">
+                            <p className="text-xs text-slate-400 bg-navy-800/50 rounded-lg px-3 py-2 border border-navy-700/30">
+                              {t.description}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                      {t.description && (
-                        <div className="px-4 pb-2.5 pt-0">
-                          <p className="text-xs text-slate-400 bg-navy-800/50 rounded-lg px-3 py-2 border border-navy-700/30">
-                            {t.description}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
 
                 {/* Add topic form */}
@@ -643,47 +881,54 @@ function PathsTab({ onPathsUpdated }: { onPathsUpdated?: () => void }) {
                   <form onSubmit={e => createTopic(e, path.path_key)} className="space-y-3 bg-navy-900/50 rounded-xl border border-navy-700 p-4">
                     <h4 className="font-semibold text-sm">Add Topic to "{path.title}"</h4>
                     <div className="grid grid-cols-2 gap-3">
-                      {[['topic_key','Topic Key','arrays-basics'],['title','Title','Arrays Basics'],['category','Category','Core']].map(([k,l,p]) => (
-                        <div key={k}>
-                          <label className="block text-xs font-semibold text-slate-400 mb-1">{l}</label>
-                          <input value={(topicForm as any)[k]} placeholder={p} onChange={e => setTopicForm(f => ({...f, [k]: e.target.value}))}
-                            className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
-                        </div>
-                      ))}
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Title *</label>
+                        <input value={topicForm.title} placeholder="e.g. Dynamic Programming Basics" onChange={e => setTopicForm(f => ({ ...f, title: e.target.value }))} required
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Topic Key (optional)</label>
+                        <input value={topicForm.topic_key} placeholder="e.g. dp-basics" onChange={e => setTopicForm(f => ({ ...f, topic_key: e.target.value }))}
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Category</label>
+                        <input value={topicForm.category} placeholder="e.g. Core" onChange={e => setTopicForm(f => ({ ...f, category: e.target.value }))}
+                          className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Difficulty</label>
-                        <select value={topicForm.difficulty} onChange={e => setTopicForm(f => ({...f, difficulty: e.target.value}))}
+                        <select value={topicForm.difficulty} onChange={e => setTopicForm(f => ({ ...f, difficulty: e.target.value }))}
                           className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
-                          {['Easy','Medium','Hard'].map(d => <option key={d}>{d}</option>)}
+                          {['Easy', 'Medium', 'Hard'].map(d => <option key={d}>{d}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Order</label>
-                        <input type="number" value={topicForm.order} onChange={e => setTopicForm(f => ({...f, order: Number(e.target.value)}))}
+                        <input type="number" value={topicForm.order} onChange={e => setTopicForm(f => ({ ...f, order: Number(e.target.value) }))}
                           className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-400 mb-1">Est. Minutes</label>
-                        <input type="number" value={topicForm.estimated_minutes} onChange={e => setTopicForm(f => ({...f, estimated_minutes: Number(e.target.value)}))}
+                        <input type="number" value={topicForm.estimated_minutes} onChange={e => setTopicForm(f => ({ ...f, estimated_minutes: Number(e.target.value) }))}
                           className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
                       </div>
                     </div>
-                    {/* Description — full width */}
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 mb-1">Description / About this topic</label>
                       <textarea value={topicForm.description} rows={3}
                         placeholder="Briefly explain what this topic covers and why it matters for placements..."
-                        onChange={e => setTopicForm(f => ({...f, description: e.target.value}))}
+                        onChange={e => setTopicForm(f => ({ ...f, description: e.target.value }))}
                         className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500 resize-none" />
                     </div>
                     <div className="flex gap-3">
-                      <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-semibold"><Save className="w-4 h-4"/>Add Topic</button>
-                      <button type="button" onClick={() => setShowTopicForm(null)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm"><X className="w-4 h-4"/></button>
+                      <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-semibold transition"><Save className="w-4 h-4"/>Add Topic</button>
+                      <button type="button" onClick={() => setShowTopicForm(null)} className="px-4 py-2 bg-navy-700 hover:bg-navy-600 rounded-lg text-sm transition"><X className="w-4 h-4"/>Cancel</button>
                     </div>
                   </form>
                 ) : (
-                  <button onClick={() => { setShowTopicForm(path.path_key); setTopicForm({ topic_key: '', title: '', category: 'Core', difficulty: 'Medium', order: path.topics.length + 1, estimated_minutes: 60, description: '' }); }}
-                    className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition">
+                  <button onClick={() => { setShowTopicForm(path.path_key); setTopicForm({ topic_key: '', title: '', category: 'Core', difficulty: 'Medium', order: (path.topics?.length || 0) + 1, estimated_minutes: 60, description: '' }); }}
+                    className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition font-medium">
                     <Plus className="w-4 h-4"/>Add topic to this path
                   </button>
                 )}

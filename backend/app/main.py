@@ -627,6 +627,45 @@ def admin_create_topic(data: dict, db: Session = Depends(get_db),
     return {"id": t.id, "topic_key": t.topic_key, "title": t.title}
 
 
+@app.put("/api/admin/paths/{pid}")
+def admin_update_path(pid: int, data: dict, db: Session = Depends(get_db),
+                      _: models.User = Depends(get_current_admin)):
+    p = db.query(models.LearningPath).filter_by(id=pid).first()
+    if not p:
+        raise HTTPException(404, "Path not found")
+    for k in ["title", "tagline", "description", "icon", "color", "order"]:
+        if k in data and data[k] is not None:
+            setattr(p, k, data[k])
+    db.commit()
+    db.refresh(p)
+    return {"id": p.id, "path_key": p.path_key, "title": p.title}
+
+
+@app.delete("/api/admin/paths/{pid}")
+def admin_delete_path(pid: int, db: Session = Depends(get_db),
+                      _: models.User = Depends(get_current_admin)):
+    p = db.query(models.LearningPath).filter_by(id=pid).first()
+    if not p:
+        raise HTTPException(404, "Path not found")
+    db.delete(p)
+    db.commit()
+    return {"detail": "deleted"}
+
+
+@app.put("/api/admin/topics/{tid}")
+def admin_update_topic(tid: int, data: dict, db: Session = Depends(get_db),
+                       _: models.User = Depends(get_current_admin)):
+    t = db.query(models.Topic).filter_by(id=tid).first()
+    if not t:
+        raise HTTPException(404, "Topic not found")
+    for k in ["title", "category", "difficulty", "order", "estimated_minutes", "icon", "description"]:
+        if k in data and data[k] is not None:
+            setattr(t, k, data[k])
+    db.commit()
+    db.refresh(t)
+    return {"id": t.id, "topic_key": t.topic_key, "title": t.title}
+
+
 @app.delete("/api/admin/topics/{tid}")
 def admin_delete_topic(tid: int, db: Session = Depends(get_db),
                        _: models.User = Depends(get_current_admin)):

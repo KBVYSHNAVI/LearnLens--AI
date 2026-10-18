@@ -10,12 +10,13 @@ This document details all the issues identified across the codebase and the exac
 |---|---|
 | [`d:\code files\Learnlens\.github\workflows\static.yml`](.github/workflows/static.yml) | Fixed GitHub Actions workflow: Added Node setup, dependency installation (`npm ci`), Vite build (`npm run build`), and artifact upload from `frontend/dist`. |
 | [`d:\code files\Learnlens\frontend\vite.config.ts`](frontend/vite.config.ts) | Added `base: './'` so static assets resolve with relative paths on GitHub Pages. |
-| [`d:\code files\Learnlens\frontend\src\services\api.ts`](frontend/src/services/api.ts) | Fixed fallback API base URL to port `8001` (matching backend port); added `runAssignmentCode` service function. |
+| [`d:\code files\Learnlens\frontend\src\services\api.ts`](frontend/src/services/api.ts) | Fixed fallback API base URL to port `8001`; added `runAssignmentCode`; implemented offline persistence and HTTP 404/502 fallback for learning paths, topics, questions, and assignments; added update & delete API methods. |
+| [`d:\code files\Learnlens\frontend\src\pages\AdminPanel.tsx`](frontend/src/pages/AdminPanel.tsx) | Added full Edit and Delete functionality for Learning Paths and Topics; added inline edit forms, validation, and notification alerts. |
+| [`d:\code files\Learnlens\backend\app\main.py`](backend/app/main.py) | Added `/api/assignments/{qid}/run` endpoint; added PUT/DELETE endpoints for `/api/admin/paths/{pid}` and PUT for `/api/admin/topics/{tid}`; auto-generated IDs and UIDs. |
 | [`d:\code files\Learnlens\frontend\src\pages\TopicView.tsx`](frontend/src/pages/TopicView.tsx) | Fixed assignment coding execution and result parsing; connected topic practice "Solve" buttons to `onSolveQuestion`. |
 | [`d:\code files\Learnlens\frontend\src\pages\CodingArena.tsx`](frontend/src/pages/CodingArena.tsx) | Upgraded from hardcoded static problem to dynamic question loader with problem selector, custom input runner ("Run"), test cases submit ("Submit"), and language starter code switching. |
 | [`d:\code files\Learnlens\frontend\src\App.tsx`](frontend/src/App.tsx) | Wired `codingQuestionId` and `handleSolveQuestion` between `TopicView` and `CodingArena`. |
 | [`d:\code files\Learnlens\backend\app\executor.py`](backend/app/executor.py) | Supported both `"expected"` and `"expected_output"` keys in test case evaluation to prevent test case failures. |
-| [`d:\code files\Learnlens\backend\app\main.py`](backend/app/main.py) | Added `/api/assignments/{qid}/run` endpoint to execute and validate assignment coding submissions; added safe JSON parsing for assignment question options/hints. |
 | [`d:\code files\Learnlens\.gitignore`](.gitignore) | Added comprehensive ignore rules for Python bytecode (`__pycache__`, `*.pyc`), virtual environments, and local SQLite database files. |
 
 ---
@@ -130,6 +131,24 @@ This document details all the issues identified across the codebase and the exac
   - Linked student `/paths` and `/topics/:topic_key` endpoints to `getStoredPaths()`, allowing immediate access to new paths and topics across the entire app.
   - Added smart auto-generation of clean kebab-case `path_key` and `topic_key` from titles on both frontend and backend.
   - Connected `onPathsUpdated` callback in `AdminPanel.tsx` so adding a new topic immediately updates topic selector dropdowns across Questions and Assignments tabs without a manual reload.
+
+---
+
+### 10. Learning Paths and Topics Cannot Be Updated or Added (Vercel 404 & Missing Edit Support)
+- **Location:** `frontend/src/services/api.ts`, `frontend/src/pages/AdminPanel.tsx`, `backend/app/main.py`
+- **Root Cause:**
+  1. On Vercel deployments, the backend is not running on the same server, so API requests to `/api/admin/paths` return HTTP `404 Not Found` (or `405`/`502`). The existing frontend `request<T>` helper only caught network errors (`TypeError: Failed to fetch`). An HTTP `404` was thrown as a normal `Error("Status 404: ...")`, bypassing offline fallback handling and preventing paths or topics from being saved.
+  2. The Admin Panel UI completely lacked Edit (`PUT`) and Delete (`DELETE`) buttons and forms for existing learning paths and topics. Once created, admins had no interface to modify titles, taglines, descriptions, difficulties, order, or estimated durations.
+  3. The backend `backend/app/main.py` lacked endpoints for `PUT /api/admin/paths/{pid}`, `DELETE /api/admin/paths/{pid}`, and `PUT /api/admin/topics/{tid}`.
+- **Fix:**
+  1. **HTTP Error Fallback in `api.ts`:** Enhanced `request<T>` in `api.ts` to inspect HTTP status codes (`404`, `405`, `502`, `503`). When the backend returns any of these statuses, it immediately falls back to `handleOfflineFallback`, ensuring seamless local CRUD persistence via `localStorage` even in standalone Vercel deployments.
+  2. **Admin UI Edit & Delete Controls (`AdminPanel.tsx`):**
+     - Added an inline modal/form for Learning Paths allowing editing of title, tagline, description, icon, color, and display order.
+     - Added a Delete button with confirmation for Learning Paths.
+     - Added an inline Edit modal/form for Topics allowing editing of title, category, difficulty, order, estimated minutes, and description.
+     - Added distinct green success and red error alerts with auto-dismiss timers.
+  3. **Backend CRUD Endpoints (`main.py`):** Added `PUT /api/admin/paths/{pid}`, `DELETE /api/admin/paths/{pid}`, and `PUT /api/admin/topics/{tid}` with database persistence and authentication checks.
+  4. **Frontend API methods:** Added `adminUpdatePath`, `adminDeletePath`, and `adminUpdateTopic` in `api.ts` with offline fallback handlers.
 
 ---
 
