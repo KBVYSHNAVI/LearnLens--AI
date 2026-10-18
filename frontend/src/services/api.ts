@@ -10,24 +10,219 @@ function getAuthHeader(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+import { mockPaths, mockTopicDetail, mockQuestions, mockDashboard, mockBadges } from './mockData';
+
+function handleOfflineFallback(endpoint: string, options: RequestInit = {}): any {
+  console.info(`[LearnLens Demo Mode] Falling back to offline data for: ${endpoint}`);
+
+  if (endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/register') || endpoint.startsWith('/admin/login')) {
+    let body: any = {};
+    try { body = JSON.parse((options.body as string) || '{}'); } catch {}
+    const email = body.email || 'learner@learnlens.ai';
+    const name = body.name || email.split('@')[0] || 'Learner';
+    const user: User = {
+      id: 1,
+      email,
+      name,
+      degree: 'B.Tech',
+      branch: 'Computer Science & Engineering',
+      graduation_year: 2026,
+      target_companies: 'Amazon, Google, Microsoft, TCS Digital',
+      preferred_language: 'python',
+      learning_goals: 'Crack Top Tier Tech Company SDE-1 placement',
+      streak_count: 5,
+      readiness_score: 72.5,
+      points: 180,
+      created_at: new Date().toISOString()
+    };
+    localStorage.setItem('learnlens_offline_user', JSON.stringify(user));
+    return {
+      access_token: 'demo-offline-jwt-token',
+      token_type: 'bearer',
+      user
+    };
+  }
+
+  if (endpoint === '/auth/me') {
+    const saved = localStorage.getItem('learnlens_offline_user');
+    if (saved) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return {
+      id: 1,
+      email: 'demo@learnlens.ai',
+      name: 'Placement Aspirant',
+      degree: 'B.Tech',
+      branch: 'Computer Science & Engineering',
+      graduation_year: 2026,
+      target_companies: 'Amazon, Google, TCS',
+      preferred_language: 'python',
+      learning_goals: 'Crack SDE placement',
+      streak_count: 5,
+      readiness_score: 72.5,
+      points: 180,
+      created_at: new Date().toISOString()
+    };
+  }
+
+  if (endpoint.startsWith('/paths')) {
+    return mockPaths;
+  }
+
+  if (endpoint.startsWith('/topics/')) {
+    if (endpoint.includes('/questions')) {
+      return mockQuestions;
+    }
+    return mockTopicDetail;
+  }
+
+  if (endpoint.startsWith('/questions/')) {
+    if (endpoint.endsWith('/run')) {
+      return {
+        success: true,
+        stdout: 'Program output (Demo Mode):\nCode executed successfully!\nResult: 9\n',
+        stderr: '',
+        error_type: null,
+        execution_time_ms: 38.5,
+        timed_out: false
+      };
+    }
+    if (endpoint.endsWith('/submit')) {
+      return {
+        status: 'Passed',
+        passed_count: 2,
+        total_count: 2,
+        execution_time_ms: 42.1,
+        test_results: [
+          { test_case_number: 1, passed: true, input: '3 7 2 9 5', expected_output: '9', actual_output: '9', is_hidden: false, execution_time_ms: 38 },
+          { test_case_number: 2, passed: true, input: '[Hidden]', expected_output: '[Hidden]', actual_output: '-2', is_hidden: true, execution_time_ms: 46 }
+        ],
+        feedback: 'All 2 passed! (Demo Mode)',
+        points_awarded: 10,
+        total_points: 190,
+        new_badges: []
+      };
+    }
+    return mockQuestions[1];
+  }
+
+  if (endpoint.startsWith('/dashboard/stats')) {
+    return mockDashboard;
+  }
+
+  if (endpoint.startsWith('/badges')) {
+    return mockBadges;
+  }
+
+  if (endpoint.startsWith('/company-tracks')) {
+    return [
+      { company: 'Amazon', difficulty: 'Hard', focus: ['Arrays', 'Trees', 'DP'], rounds: ['Online Assessment', 'DSA Technical', 'Leadership Principles'] },
+      { company: 'Google', difficulty: 'Hard', focus: ['Graphs', 'DP', 'System Design'], rounds: ['Online Coding', 'DSA x3', 'Googlyness'] },
+      { company: 'TCS Digital', difficulty: 'Medium', focus: ['Aptitude', 'Basic DSA', 'SQL'], rounds: ['Aptitude', 'Advanced Coding', 'Technical HR'] }
+    ];
+  }
+
+  if (endpoint.startsWith('/interview/simulate')) {
+    return {
+      role: 'SDE-1',
+      round_type: 'dsa',
+      questions: [
+        'Explain the difference between an Array and a Linked List in terms of memory layout and access time.',
+        'How would you detect a cycle in a singly linked list with O(1) space complexity?',
+        'Describe how a Hash Table handles hash collisions.'
+      ]
+    };
+  }
+
+  if (endpoint.startsWith('/ai/tutor')) {
+    return {
+      reply: 'Hello! I am your LearnLens AI Placement Mentor (Demo Mode). Arrays use contiguous memory for O(1) access. Practice two pointers to solve subarray problems efficiently!',
+      action_type: 'explain_concept',
+      hint_level: 1,
+      suggested_follow_ups: ['Explain Two Pointers', 'Show dry run for max element', 'What are common edge cases?'],
+      is_offline_mode: true
+    };
+  }
+
+  if (endpoint.startsWith('/ai/coach')) {
+    return {
+      reply: 'Thanks for sharing your answer! In an interview, it helps to state the time and space complexity upfront before writing the solution. Overall strong explanation!',
+      mode: 'interview',
+      is_offline: true
+    };
+  }
+
+  if (endpoint.startsWith('/assignments/')) {
+    if (endpoint.endsWith('/run')) {
+      return {
+        status: 'Passed',
+        passed_count: 2,
+        total_count: 2,
+        feedback: 'All test cases passed! (Demo Mode)',
+        execution_time_ms: 32
+      };
+    }
+    if (endpoint.endsWith('/submit')) {
+      return {
+        status: 'passed',
+        overall_score: 90,
+        mcq_score: 100,
+        mcq_correct: 1,
+        mcq_total: 1,
+        coding_passed: 1,
+        coding_total: 1,
+        passed: true
+      };
+    }
+    return {
+      topic_id: 1,
+      mcq_questions: [mockQuestions[0]],
+      coding_questions: [mockQuestions[1]],
+      mcq_target: 20,
+      coding_target: 5,
+      mcq_available: 1,
+      coding_available: 1,
+      previous_submission: null
+    };
+  }
+
+  return {};
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = {
     'Content-Type': 'application/json',
     ...getAuthHeader(),
     ...options.headers
   };
-  const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-  if (!response.ok) {
-    let msg = 'Error';
-    try {
-      const d = await response.json();
-      msg = d.detail || JSON.stringify(d);
-    } catch {
-      msg = `Status ${response.status}`;
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    if (!response.ok) {
+      let msg = 'Error';
+      try {
+        const d = await response.json();
+        msg = d.detail || JSON.stringify(d);
+      } catch {
+        msg = `Status ${response.status}`;
+      }
+      throw new Error(msg);
     }
-    throw new Error(msg);
+    return response.json();
+  } catch (err: any) {
+    // If backend is unreachable (Failed to fetch, Mixed Content, Network Error, etc.)
+    if (
+      err.name === 'TypeError' ||
+      err.message?.includes('Failed to fetch') ||
+      err.message?.includes('NetworkError') ||
+      err.message?.includes('Load failed')
+    ) {
+      const fallback = handleOfflineFallback(endpoint, options);
+      if (fallback !== undefined) {
+        return fallback as T;
+      }
+    }
+    throw err;
   }
-  return response.json();
 }
 
 export const api = {
